@@ -370,6 +370,7 @@ def get_integer_basis(normal_vec, sl_flips_list=None):
         return unit_basis + chosen_basis
 
 
+
 def formula_norm(v, sl_flips_list):
     """Get formula norm.
 

@@ -4,7 +4,8 @@ import numpy.testing as npt
 
 from pymatgen.core import Structure, Lattice, Composition
 from smol.moca import (CanonicalEnsemble, FuSemiGrandEnsemble,
-                       MuSemiGrandEnsemble,
+                       MuSemiGrandEnsemble, 
+                       DiscChargeNeutralSemiGrandEnsemble,
                        CEProcessor, Sampler)
 from smol.moca.sampler.mcusher import (Swapper, Flipper,
                                        Tableflipper)
@@ -17,7 +18,8 @@ from smol.cofe.space.domain import SiteSpace
 from tests.utils import (gen_random_occupancy,
                          gen_random_neutral_occupancy)
 
-ensembles = [CanonicalEnsemble, MuSemiGrandEnsemble, FuSemiGrandEnsemble]
+ensembles = [CanonicalEnsemble, MuSemiGrandEnsemble, FuSemiGrandEnsemble,
+             DiscChargeNeutralSemiGrandEnsemble]
 TEMPERATURE = 5000
 
 def initialize_occus(sampler):
@@ -38,6 +40,16 @@ def ensemble(cluster_subspace, request):
         kwargs = {'chemical_potentials':
                   {sp: 0.3 for space in proc.unique_site_spaces
                    for sp in space.keys()}}
+    elif request.param is DiscChargeNeutralSemiGrandEnsemble:    
+
+        sublattices = get_all_sublattices(proc)
+    
+        bits = [sl.species for sl in sublattices]
+        sl_sizes = [len(sl.sites) for sl in sublattices]
+    
+        comp_space = CompSpace(bits,sl_sizes)
+        kwargs = {'mu':[0.3 for i in range(comp_space.dim)]}
+
     else:
         kwargs = {}
     return request.param(proc, **kwargs)
@@ -52,6 +64,8 @@ def sampler(ensemble, request):
 def test_from_ensemble(sampler):
     if "Canonical" in sampler.samples.metadata["name"]:
         assert isinstance(sampler.mcmckernel._usher, Swapper)
+    elif "Disc" in sampler.samples.metadata["name"]:
+        assert isinstance(sampler.mcmckernel._usher, Tableflipper)
     else:
         assert isinstance(sampler.mcmckernel._usher, Flipper)
     assert isinstance(sampler.mcmckernel, Metropolis)

@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from math import log
 from random import random
 import numpy as np
+import time
 
 from smol.constants import kB
 from smol.utils import derived_class_factory
@@ -118,7 +119,8 @@ class Metropolis(MCMCKernel):
     """
 
     valid_mcushers = {'flip': 'Flipper', 'swap': 'Swapper',
-                      'table-flip': 'Tableflipper'}
+                      'table-flip': 'Tableflipper',
+                      'subchain-walk': 'Subchainwalker'}
     valid_bias = {'null': 'Nullbias',
                   'square-charge': 'Squarechargebias',
                   'square-comp-constraint': 'Squarecompconstraintbias'}
@@ -137,6 +139,7 @@ class Metropolis(MCMCKernel):
             tuple: (acceptance, occupancy, bias, dt, features change,
                     enthalpy change)
         """
+        cur_time = time.time()
         step = self._usher.propose_step(occupancy)
         factor = self._usher.compute_a_priori_factor(occupancy, step)
         delta_features = self._feature_change(occupancy, step)
@@ -152,8 +155,9 @@ class Metropolis(MCMCKernel):
             self._usher.update_aux_state(step)
             bias += delta_bias
 
+        dt = time.time()-cur_time
         # Record the current bias term.
-        return (accept, occupancy, bias, delta_enthalpy,
+        return (accept, occupancy, bias, dt, delta_enthalpy,
                 delta_features)
 
 
