@@ -59,13 +59,15 @@ class SampleContainer(MSONable):
             (not implemented yet)
     """
 
-    def __init__(self, num_sites, sublattices, natural_parameters,
+    def __init__(self, num_sites, d_ccoords, sublattices, natural_parameters,
                  num_energy_coefs, sampling_metadata=None, nwalkers=1):
         """Initialize a sample container.
 
         Args:
             num_sites (int):
                 Total number of sites in supercell of the ensemble.
+            d_ccoords (int):
+                Dimension of compositions in ccoords.
             sublattices (list of Sublattice):
                 Sublattices of the ensemble sampled.
             natural_parameters (ndarray):
@@ -92,6 +94,17 @@ class SampleContainer(MSONable):
         self._accepted = np.zeros((0, nwalkers), dtype=int)
         self._bias = np.empty((0, nwalkers))
         self._time = np.empty((0, nwalkers))  # For time stamping
+
+        # For dynamic monitoring. These makes tests invalid, and I only use these in
+        # LMZOF benchmark.
+        self._nsamples_chunk = np.empty((0, nwalkers))
+        self._n_hops_occu = np.empty((0, nwalkers))
+        self._n_hops_comp = np.empty((0, nwalkers))
+        self._enthalpy_av = np.empty((0, nwalkers))
+        self._enthalpy2_av = np.empty((0, nwalkers))
+        self._ccoords_av = np.empty((0, nwalkers, d_ccoords)
+        self._ccoords2_av = np.empty((0, nwalkers, d_ccoords))
+
         self.aux_checkpoint = None
         self._backend = None  # for streaming
 
@@ -393,8 +406,13 @@ class SampleContainer(MSONable):
             counts = self._flatten(counts)
         return counts
 
+# TODO: modify this to allow dynamic saving of properties.
     def save_sample(self, accepted, temperature, occupancies, bias, times,
-                    enthalpy, features, thinned_by):
+                    enthalpy, features,
+                    n_samples, n_hops_occu, n_hops_comp,
+                    enthalpy_av, enthalpy2_av,
+                    ccoords_av, ccoords2_av,
+                    thinned_by):
         """Save a sample from the generated chain.
 
         Args:
@@ -423,6 +441,15 @@ class SampleContainer(MSONable):
         self._time[self._nsamples, :] = times
         self._enthalpy[self._nsamples, :] = enthalpy
         self._features[self._nsamples, :, :] = features
+
+        self._nsamples_chunk[self._nsamples, :] = n_samples
+        self._n_hops_occu[self._nsamples, :] = n_hops_occu
+        self._n_hops_comp[self._nsamples, :] = n_hops_comp
+        self._enthalpy_av[self._nsamples, :] = enthalpy_av
+        self._enthalpy2_av[self._nsamples, :] = enthalpy2_av
+        self._ccoords_av[self._nsamples, :, :] = ccoords_av
+        self._ccoords2_av[self._nsamples, :, :] = ccoords2_av
+
         self._nsamples += 1
         self.total_mc_steps += thinned_by
 
@@ -438,6 +465,16 @@ class SampleContainer(MSONable):
         self._enthalpy = np.empty((0, nwalkers))
         self._temperature = np.empty((0, nwalkers))
         self._accepted = np.zeros((0, nwalkers), dtype=int)
+
+        self._nsamples_chunk = np.empty((0, nwalkers))
+        self._n_hops_occu = np.empty((0, nwalkers))
+        self._n_hops_comp = np.empty((0, nwalkers))
+        self._enthalpy_av = np.empty((0, nwalkers))
+        self._enthalpy2_av = np.empty((0, nwalkers))
+
+        d = self._ccoords_av.shape[-1]
+        self._ccoords_av = np.empty((0, nwalkers, d))
+        self._ccoords2_av = np.empty((0, nwalkers, d))
 
     def allocate(self, nsamples):
         """Allocate more space in arrays for more samples."""
@@ -456,6 +493,21 @@ class SampleContainer(MSONable):
         arr = np.zeros((nsamples, *self._accepted.shape[1:]), dtype=int)
         self._accepted = np.append(self._accepted, arr, axis=0)
 
+        arr = np.empty((nsamples, *self._nsamples_chunk.shape[1:]))
+        self._nsamples_chunk = np.append(self._nsamples_chunk, arr, axis=0)
+        arr = np.empty((nsamples, *self._n_hops_occu.shape[1:]))
+        self._n_hops_occu = np.append(self._n_hops_occu, arr, axis=0)
+        arr = np.empty((nsamples, *self._n_hops_comp.shape[1:]))
+        self._n_hops_comp = np.append(self._n_hops_comp, arr, axis=0)
+        arr = np.empty((nsamples, *self._enthalpy_av.shape[1:]))
+        self._enthalpy_av = np.append(self._enthalpy_av, arr, axis=0)
+        arr = np.empty((nsamples, *self._enthalpy2_av.shape[1:]))
+        self._enthalpy2_av = np.append(self._enthalpy2_av, arr, axis=0)
+        arr = np.empty((nsamples, *self._ccoords_av.shape[1:]))
+        self._ccoords_av = np.append(self._ccoords_av, arr, axis=0)
+        arr = np.empty((nsamples, *self._ccoords2_av.shape[1:]))
+        self._enthalpy2_av = np.append(self._ccoords2_av, arr, axis=0)
+
     def flush_to_backend(self, backend):
         """Flush current samples and trace to backend file."""
         start = backend["chain"].attrs["nsamples"]
@@ -469,6 +521,14 @@ class SampleContainer(MSONable):
         backend["features"][start:end, :, :] = self._features
         backend["chain"].attrs["total_mc_steps"] += self.total_mc_steps
         backend["chain"].attrs["nsamples"] += self._nsamples
+        backend["nsamples_chunk"][start:end, :] = self._nsamples_chunk
+        backend["n_hops_occu"][start:end, :] = self._n_hops_occu
+        backend["n_hops_comp"][start:end, :] = self._n_hops_comp
+        backend["enthalpy_av"][start:end, :] = self._enthalpy_av
+        backend["enthalpy2_av"][start:end, :] = self._enthalpy2_av
+        backend["ccoords_av"][start:end, :] = self._ccoords_av
+        backend["ccoords2_av"][start:end, :] = self._ccoords2_av
+
         backend.flush()
         self.total_mc_steps = 0
         self._nsamples = 0
@@ -547,6 +607,21 @@ class SampleContainer(MSONable):
         backend.create_dataset("features",
                                (nsamples, *self._features.shape[1:]))
 
+        backend.create_dataset("nsamples_chunk",
+                               (nsamples, *self._nsamples_chunk.shape[1:]))
+        backend.create_dataset("n_hops_occu",
+                               (nsamples, *self._n_hops_occu.shape[1:]))
+        backend.create_dataset("n_hops_comp",
+                               (nsamples, *self._n_hops_comp.shape[1:]))
+        backend.create_dataset("enthalpy_av",
+                               (nsamples, *self._enthalpy_av.shape[1:]))
+        backend.create_dataset("enthalpy2_av",
+                               (nsamples, *self._enthalpy2_av.shape[1:]))
+        backend.create_dataset("ccoords_av",
+                               (nsamples, *self._ccoords_av.shape[1:]))
+        backend.create_dataset("ccoords2_av",
+                               (nsamples, *self._ccoords2_av.shape[1:]))
+
     def _grow_backend(self, backend, nsamples):
         """Extend space available in a backend file."""
         backend["chain"].resize((backend["chain"].shape[0] + nsamples,
@@ -563,6 +638,29 @@ class SampleContainer(MSONable):
                                     *self._enthalpy.shape[1:]))
         backend["features"].resize((backend["chain"].shape[0] + nsamples,
                                     *self._features.shape[1:]))
+
+        backend["nsamples_chunk"].resize((backend["nsamples_chunk"].shape[0]
+                                         + nsamples,
+                                         *self._nsamples_chunk.shape[1:]))
+        backend["n_hops_occu"].resize((backend["n_hops_occu"].shape[0]
+                                      + nsamples,
+                                      *self._n_hops_occu.shape[1:]))
+        backend["n_hops_comp"].resize((backend["n_hops_comp"].shape[0]
+                                      + nsamples,
+                                      *self._n_hops_comp.shape[1:]))
+        backend["enthalpy_av"].resize((backend["enthalpy_av"].shape[0]
+                                      + nsamples,
+                                      *self._enthalpy_av.shape[1:]))
+        backend["enthalpy2_av"].resize((backend["enthalpy2_av"].shape[0]
+                                       + nsamples,
+                                       *self._enthalpy2_av.shape[1:]))
+        backend["ccoords_av"].resize((backend["ccoords_av"].shape[0]
+                                     + nsamples,
+                                     *self._ccoords_av.shape[1:]))
+        backend["ccoords2_av"].resize((backend["ccoords2_av"].shape[0]
+                                      + nsamples,
+                                      *self._ccoords2_av.shape[1:]))
+
 
     @staticmethod
     def _flatten(chain):
@@ -596,6 +694,13 @@ class SampleContainer(MSONable):
              'features': self._features.tolist(),
              'enthalpy': self._enthalpy.tolist(),
              'accepted': self._accepted.tolist(),
+             'nsamples_chunk': self._nsamples_chunk.tolist(),
+             'n_hops_occu': self._n_hops_occu.tolist(),
+             'n_hops_comp': self._n_hops_comp.tolist(),
+             'enthalpy_av': self._enthalpy_av.tolist(),
+             'enthalpy2_av': self._enthalpy2_av.tolist(),
+             'ccoords_av': self._ccoords_av.tolist(),
+             'ccoords2_av': self._ccoords2_av.tolist(),
              'aux_checkpoint': self.aux_checkpoint}
         # TODO need to think how to genrally serialize the aux checkpoint
         return d
@@ -622,6 +727,13 @@ class SampleContainer(MSONable):
         container._features = np.array(d['features'])
         container._enthalpy = np.array(d['enthalpy'])
         container._accepted = np.array(d['accepted'], dtype=int)
+        container._nsamples_chunk = np.array(d['nsamples_chunk'])
+        container._n_hops_occu = np.array(d['n_hops_occu'])
+        container._n_hops_comp = np.array(d['n_hops_comp'])
+        container._enthalpy_av = np.array(d['enthalpy_av'])
+        container._enthalpy2_av = np.array(d['enthalpy2_av'])
+        container._ccoords_av = np.array(d['ccoords_av'])
+        container._ccoords2_av = np.array(d['ccoords2_av'])
         return container
 
     @classmethod
@@ -667,4 +779,13 @@ class SampleContainer(MSONable):
             container._features = f["features"][:nsamples]
             container._nsamples = nsamples
             container.total_mc_steps = f["chain"].attrs["total_mc_steps"]
+
+            container._nsamples_chunk = f["nsamples_chunk"][:nsamples]
+            container._n_hops_occu = f["n_hops_occu"][:nsamples]
+            container._n_hops_comp = f["n_hops_comp"][:nsamples]
+            container._enthalpy_av = f["enthalpy_av"][:nsamples]
+            container._enthalpy2_av = f["enthalpy2_av"][:nsamples]
+            container._ccoords_av = f["ccoords_av"][:nsamples]
+            container._ccoords2_av = f["ccoords2_av"][:nsamples]
+
         return container

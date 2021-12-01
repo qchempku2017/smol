@@ -51,7 +51,9 @@ class Sampler:
         random.seed(seed)
 
     @classmethod
-    def from_ensemble(cls, ensemble, temperature, step_type=None,
+    def from_ensemble(cls, ensemble, temperature,
+                      d_ccoords,
+                      step_type=None,
                       kernel_type=None, bias_type=None,
                       seed=None, nwalkers=1,
                       *args, **kwargs):
@@ -105,7 +107,9 @@ class Sampler:
         sampling_metadata = {"name": type(ensemble).__name__}
         sampling_metadata.update(ensemble.thermo_boundaries)
         sampling_metadata.update({"kernel": kernel_type, "step": step_type})
+
         container = SampleContainer(ensemble.num_sites,
+                                    d_ccoords,
                                     ensemble.sublattices,
                                     ensemble.natural_parameters,
                                     ensemble.num_energy_coefs,
@@ -141,7 +145,8 @@ class Sampler:
         """Clear samples from sampler container."""
         self.samples.clear()
 
-    def sample(self, nsteps, initial_occupancies, thin_by=1, progress=False):
+    def sample(self, nsteps, initial_occupancies, coords_gen,
+               thin_by=1, progress=False):
         """Generate MCMC samples.
 
         Yield a sampler state every `thin_by` iterations. A state is give by
@@ -158,7 +163,9 @@ class Sampler:
                 If true will show a progress bar.
 
         Yields:
-            tuple: accepted, occupancies, features change, enthalpies change
+            tuple: accepted, occupancies, features change, enthalpies change,
+                   and statistics in these steps, including occupancy and
+                   composition sampling rates, averages and variances.
         """
         occupancies = initial_occupancies.copy()
         if occupancies.shape != self.samples.shape:
@@ -175,12 +182,19 @@ class Sampler:
         # allocate arrays for states
         occupancies = np.ascontiguousarray(occupancies, dtype=int)
         accepted = np.zeros(occupancies.shape[0], dtype=int)
+        n_samples = np.zeros(occupancies.shape[0], dtype=int)
+        n_hops_occu = np.zeros(occupancies.shape[0], dtype=int) # yield
+        n_hops_comp = np.zeros(occupancies.shape[0], dtype=int) # yield
+
         features = list(map(self._kernel.feature_fun, occupancies))
         features = np.ascontiguousarray(features)
         enthalpy = np.dot(self._kernel.natural_params, features.T)
         temperature = self._kernel.temperature * np.ones(occupancies.shape[0])
         bias = np.zeros(occupancies.shape[0])
         times = np.zeros(occupancies.shape[0])
+        # Must start from bias = 0 occupancies.
+        occu_prev = np.ascontiguousarray(occupancies, dtype=int)
+        ccoords_prev = np.array([ccoords_gen(o) for o in occu_prev])
 
         # Initialise progress bar
         chains, nsites = self.samples.shape
@@ -188,7 +202,11 @@ class Sampler:
                 f" K from a cell with {nsites} sites")
         with progress_bar(progress, total=nsteps, description=desc) as bar:
             for _ in range(nsteps // thin_by):
-                for _ in range(thin_by):
+                enthalpy_chunk = np.zeros((occupancies.shape[0], thin_by)
+                ccoords_chunk = np.zeros((occupancies.shape[0], thin_by,
+                                          ccoords_prev.shape[1]))
+                bias_chunk = np.zeros((occupancies.shape[0], thin_by))
+                for j in range(thin_by):
                     for i, (accept, occupancy, occu_bias, occu_dt,
                             delta_enthalpy, delta_features)\
                       in enumerate(map(self._kernel.single_step, occupancies)):
@@ -196,17 +214,54 @@ class Sampler:
                         occupancies[i] = occupancy
                         bias[i] = occu_bias
                         times[i] += occu_dt
+
                         # Count from initial time for numerical accuracy.
                         if accept:
                             enthalpy[i] = enthalpy[i] + delta_enthalpy
                             features[i] = features[i] + delta_features
+
+                        bias_chunk[i, j] = occu_bias
+                        enthalpy_chunk[i, j] = enthalpy[i]
+                        ccoords_chunk[i, j] = ccoords_gen(occupancy)
+
+                        if occu_bias == 0: # Non-neutral will be dropped.
+                            if not np.allclose(occu_prev[i], occupancy):
+                                n_hops_occu[i] += 1
+                                occu_prev[i] = occupancy.copy()
+                                if not np.allclose(ccoords_prev[i],
+                                                   ccoords_chunk[i, j]):
+                                    n_hops_comp[i] += 1
+                                    ccoords_prev[i] = ccoords_chunk[i, j].copy()
+                            
                     bar.update()
                 # yield copies
-                yield (accepted, temperature, occupancies.copy(), bias.copy(),
-                       times.copy(), enthalpy.copy(), features.copy(), thin_by)
-                accepted[:] = 0  # reset acceptance array
+                mask = np.isclose(bias_chunk, 0).astype(int)
+                n_samples_chunk = np.sum(mask, axis=1)
+                enthalpy_av = np.average(enthalpy_chunk * mask,
+                                         axis = 1)
+                enthalpy2_av = np.average((enthalpy_chunk ** 2) * mask,
+                                          axis = 1)
+                ccoords_av = np.average(ccoords_chunk * mask[:, :, None],
+                                        axis = 1)
+                ccoords2_av = np.average((ccoords_chunk ** 2) * mask[:, :, None],
+                                         axis = 1)
 
-    def run(self, nsteps, initial_occupancies=None, thin_by=1, progress=False,
+                yield (accepted, temperature, occupancies.copy(), bias.copy(),
+                       times.copy(), enthalpy.copy(), features.copy(),
+                       n_samples_chunk.copy(), n_hops_occu.copy(), n_hops_comp.copy(),
+                       enthalpy_av.copy(), enthalpy2_av.copy(),
+                       ccoords_av.copy(), ccoords2_av.copy(),
+                       thin_by)
+
+                # Clear culumant values in chunk.
+                accepted[:] = 0
+                n_samples[:] = 0
+                n_hops_occu[:] = 0
+                n_hops_comp[:] = 0
+
+    def run(self, nsteps, initial_occupancies=None, thin_by=1, 
+            n_par=16,
+            progress=False,
             save_unbiased_only=False,
             stream_chunk=0, stream_file=None, swmr_mode=False):
         """Run an MCMC sampling simulation.
@@ -224,6 +279,8 @@ class Sampler:
                 a fresh run.
             thin_by (int): optional
                 the amount to thin by for saving samples.
+            n_par(int): optional
+                Create a log of statistics every nsteps//n_par.
             progress (bool): optional
                 If true will show a progress bar.
             save_unbiased_only(bool):
@@ -309,11 +366,11 @@ class Sampler:
                              f'{temperatures[0]:.2f}.')
         # initialize for first temperature.
         self._kernel.temperature = temperatures[0]
-        self.run(mcmc_steps, initial_occupancies=initial_occupancies,
+        _ = self.run(mcmc_steps, initial_occupancies=initial_occupancies,
                  thin_by=thin_by, progress=progress)
         for temperature in temperatures[1:]:
             self._kernel.temperature = temperature
-            self.run(mcmc_steps, thin_by=thin_by, progress=progress)
+            _ = self.run(mcmc_steps, thin_by=thin_by, progress=progress)
 
     def _reshape_occu(self, occupancies):
         """Reshape occupancies for the single walker case."""
