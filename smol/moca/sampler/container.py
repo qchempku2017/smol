@@ -81,6 +81,7 @@ class SampleContainer(MSONable):
                 Number of walkers used to generate chain. Default is 1
         """
         self.num_sites = num_sites
+        self.d_ccoords = d_ccoords
         self.sublattices = sublattices
         self.natural_parameters = natural_parameters
         self.metadata = {} if sampling_metadata is None else sampling_metadata
@@ -102,7 +103,7 @@ class SampleContainer(MSONable):
         self._n_hops_comp = np.empty((0, nwalkers))
         self._enthalpy_av = np.empty((0, nwalkers))
         self._enthalpy2_av = np.empty((0, nwalkers))
-        self._ccoords_av = np.empty((0, nwalkers, d_ccoords)
+        self._ccoords_av = np.empty((0, nwalkers, d_ccoords))
         self._ccoords2_av = np.empty((0, nwalkers, d_ccoords))
 
         self.aux_checkpoint = None
@@ -406,7 +407,6 @@ class SampleContainer(MSONable):
             counts = self._flatten(counts)
         return counts
 
-# TODO: modify this to allow dynamic saving of properties.
     def save_sample(self, accepted, temperature, occupancies, bias, times,
                     enthalpy, features,
                     n_samples, n_hops_occu, n_hops_comp,
@@ -506,7 +506,7 @@ class SampleContainer(MSONable):
         arr = np.empty((nsamples, *self._ccoords_av.shape[1:]))
         self._ccoords_av = np.append(self._ccoords_av, arr, axis=0)
         arr = np.empty((nsamples, *self._ccoords2_av.shape[1:]))
-        self._enthalpy2_av = np.append(self._ccoords2_av, arr, axis=0)
+        self._ccoords2_av = np.append(self._ccoords2_av, arr, axis=0)
 
     def flush_to_backend(self, backend):
         """Flush current samples and trace to backend file."""
@@ -586,6 +586,7 @@ class SampleContainer(MSONable):
         sublattices = [sublatt.as_dict() for sublatt in self.sublattices]
         backend.create_dataset("sublattices", data=json.dumps(sublattices))
         backend["sublattices"].attrs["num_sites"] = self.num_sites
+        backend["sublattices"].attrs["d_ccoords"] = self.d_ccoords
         backend.create_dataset("natural_parameters",
                                data=self.natural_parameters)
         backend["natural_parameters"].attrs["num_energy_coefs"] = self._num_energy_coefs  # noqa
@@ -682,6 +683,7 @@ class SampleContainer(MSONable):
         d = {'@module': self.__class__.__module__,
              '@class': self.__class__.__name__,
              'num_sites': self.num_sites,
+             'd_ccoords': self.d_ccoords,
              'sublattices': [s.as_dict() for s in self.sublattices],
              'natural_parameters': self.natural_parameters,
              'metadata': self.metadata,
@@ -716,7 +718,7 @@ class SampleContainer(MSONable):
             Sublattice
         """
         sublattices = [Sublattice.from_dict(s) for s in d['sublattices']]
-        container = cls(d['num_sites'], sublattices,
+        container = cls(d['num_sites'], d['d_ccoords'], sublattices,
                         d['natural_parameters'], d['num_energy_coefs'],
                         d['metadata'])
         container._nsamples = np.array(d['nsamples'])
@@ -765,6 +767,7 @@ class SampleContainer(MSONable):
             sublattices = [Sublattice.from_dict(s) for s in
                            json.loads(f["sublattices"][()])]
             container = cls(f["sublattices"].attrs["num_sites"],
+                            f["sublattices"].attrs["d_ccoords"],
                             sublattices=sublattices,
                             natural_parameters=f["natural_parameters"][()],
                             num_energy_coefs=f["natural_parameters"].attrs["num_energy_coefs"],  # noqa

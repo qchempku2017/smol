@@ -145,7 +145,7 @@ class Sampler:
         """Clear samples from sampler container."""
         self.samples.clear()
 
-    def sample(self, nsteps, initial_occupancies, coords_gen,
+    def sample(self, nsteps, initial_occupancies, ccoords_gen,
                thin_by=1, progress=False):
         """Generate MCMC samples.
 
@@ -182,9 +182,9 @@ class Sampler:
         # allocate arrays for states
         occupancies = np.ascontiguousarray(occupancies, dtype=int)
         accepted = np.zeros(occupancies.shape[0], dtype=int)
-        n_samples = np.zeros(occupancies.shape[0], dtype=int)
-        n_hops_occu = np.zeros(occupancies.shape[0], dtype=int) # yield
-        n_hops_comp = np.zeros(occupancies.shape[0], dtype=int) # yield
+        n_samples = np.zeros(occupancies.shape[0])
+        n_hops_occu = np.zeros(occupancies.shape[0]) # yield
+        n_hops_comp = np.zeros(occupancies.shape[0]) # yield
 
         features = list(map(self._kernel.feature_fun, occupancies))
         features = np.ascontiguousarray(features)
@@ -193,7 +193,7 @@ class Sampler:
         bias = np.zeros(occupancies.shape[0])
         times = np.zeros(occupancies.shape[0])
         # Must start from bias = 0 occupancies.
-        occu_prev = np.ascontiguousarray(occupancies, dtype=int)
+        occu_prev = occupancies.copy()
         ccoords_prev = np.array([ccoords_gen(o) for o in occu_prev])
 
         # Initialise progress bar
@@ -202,7 +202,7 @@ class Sampler:
                 f" K from a cell with {nsites} sites")
         with progress_bar(progress, total=nsteps, description=desc) as bar:
             for _ in range(nsteps // thin_by):
-                enthalpy_chunk = np.zeros((occupancies.shape[0], thin_by)
+                enthalpy_chunk = np.zeros((occupancies.shape[0], thin_by))
                 ccoords_chunk = np.zeros((occupancies.shape[0], thin_by,
                                           ccoords_prev.shape[1]))
                 bias_chunk = np.zeros((occupancies.shape[0], thin_by))
@@ -222,36 +222,74 @@ class Sampler:
 
                         bias_chunk[i, j] = occu_bias
                         enthalpy_chunk[i, j] = enthalpy[i]
-                        ccoords_chunk[i, j] = ccoords_gen(occupancy)
+                        if abs(occu_bias) < 1E-6:
+                            ccoords_chunk[i, j, :] = ccoords_gen(occupancy)
+                        # Only neutral structs can be converted.
 
-                        if occu_bias == 0: # Non-neutral will be dropped.
-                            if not np.allclose(occu_prev[i], occupancy):
+                        if abs(occu_bias) < 1E-6: # Only count hop on plane.
+                            #print("step in chunk:", j)
+                            #print("prev_occu:", occu_prev[i])
+                            #print("cur_occu:", occupancy)
+                            if not np.allclose(occu_prev[i, :], occupancy):
                                 n_hops_occu[i] += 1
-                                occu_prev[i] = occupancy.copy()
-                                if not np.allclose(ccoords_prev[i],
-                                                   ccoords_chunk[i, j]):
+                                occu_prev[i, :] = occupancy.copy()
+                                if not np.allclose(ccoords_prev[i, :],
+                                                   ccoords_chunk[i, j, :]):
                                     n_hops_comp[i] += 1
-                                    ccoords_prev[i] = ccoords_chunk[i, j].copy()
+                                    ccoords_prev[i, :] = ccoords_chunk[i, j, :].copy()
                             
                     bar.update()
                 # yield copies
                 mask = np.isclose(bias_chunk, 0).astype(int)
                 n_samples_chunk = np.sum(mask, axis=1)
-                enthalpy_av = np.average(enthalpy_chunk * mask,
-                                         axis = 1)
-                enthalpy2_av = np.average((enthalpy_chunk ** 2) * mask,
-                                          axis = 1)
-                ccoords_av = np.average(ccoords_chunk * mask[:, :, None],
+                enthalpy_sum = np.sum(enthalpy_chunk * mask,
+                                     axis = 1)
+                enthalpy2_sum = np.sum((enthalpy_chunk ** 2) * mask,
+                                      axis = 1)
+                ccoords_sum = np.sum(ccoords_chunk * mask[:, :, None],
                                         axis = 1)
-                ccoords2_av = np.average((ccoords_chunk ** 2) * mask[:, :, None],
-                                         axis = 1)
+                ccoords2_sum = np.sum((ccoords_chunk ** 2) * mask[:, :, None],
+                                     axis = 1)
 
-                yield (accepted, temperature, occupancies.copy(), bias.copy(),
-                       times.copy(), enthalpy.copy(), features.copy(),
-                       n_samples_chunk.copy(), n_hops_occu.copy(), n_hops_comp.copy(),
-                       enthalpy_av.copy(), enthalpy2_av.copy(),
-                       ccoords_av.copy(), ccoords2_av.copy(),
-                       thin_by)
+                enthalpy_av = np.array([enthalpy_sum[i]/n_samples_chunk[i]
+                                        if n_samples_chunk[i] != 0 else 0
+                                        for i in range(occupancies.shape[0])])
+                enthalpy2_av = np.array([enthalpy2_sum[i]/n_samples_chunk[i]
+                                        if n_samples_chunk[i] != 0 else 0
+                                        for i in range(occupancies.shape[0])])
+                ccoords_av = np.array([ccoords_sum[i]/n_samples_chunk[i]
+                                      if n_samples_chunk[i] != 0 else np.zeros(ccoords_sum.shape[1])
+                                      for i in range(occupancies.shape[0])])
+                ccoords2_av = np.array([ccoords2_sum[i]/n_samples_chunk[i]
+                                      if n_samples_chunk[i] != 0 else np.zeros(ccoords_sum.shape[1])
+                                      for i in range(occupancies.shape[0])])
+
+
+                snap = (accepted, temperature, occupancies.copy(), bias.copy(),
+                        times.copy(), enthalpy.copy(), features.copy(),
+                        n_samples_chunk.copy(), n_hops_occu.copy(), n_hops_comp.copy(),
+                        enthalpy_av.copy(), enthalpy2_av.copy(),
+                        ccoords_av.copy(), ccoords2_av.copy(),
+                        thin_by)
+                #print("snapshot:", snap)
+                #print("n_hops_occu:", n_hops_occu)
+                #print("n_hops_comp:", n_hops_comp)
+
+                filt = (n_samples_chunk != 0) & (n_hops_occu == 0)
+                if np.sum(filt) > 0:
+                    if not np.allclose(enthalpy2_av[filt], enthalpy_av[filt]**2, atol=1E-3):
+                        print("Warning! Variance mismatch enthalpy")
+                        print("filt:", filt)
+                        print("enthalpy2_av:", enthalpy2_av)
+                        print("enthalpy_av**2:", enthalpy_av**2)
+                filt2 = (n_samples_chunk != 0) & (n_hops_comp == 0)
+                if np.sum(filt2) > 0:
+                    if not np.allclose(ccoords2_av[filt2, :], ccoords_av[filt2, :]**2, atol=1E-3):
+                        print("Warning! Variance mismatch ccoords.")
+                        print("flit:", filt2)
+                        print("ccoords2_av:", ccoords2_av)
+                        print("ccoords_av:", ccoords_av**2)
+                yield snap
 
                 # Clear culumant values in chunk.
                 accepted[:] = 0
@@ -259,7 +297,8 @@ class Sampler:
                 n_hops_occu[:] = 0
                 n_hops_comp[:] = 0
 
-    def run(self, nsteps, initial_occupancies=None, thin_by=1, 
+    def run(self, nsteps, ccoords_gen,
+            initial_occupancies=None, thin_by=1, 
             n_par=16,
             progress=False,
             save_unbiased_only=False,
@@ -324,6 +363,7 @@ class Sampler:
             self.samples.allocate(nsteps // thin_by)
 
         for i, state in enumerate(self.sample(nsteps, initial_occupancies,
+                                  ccoords_gen,
                                   thin_by=thin_by, progress=progress)):
             if (not save_unbiased_only) or state[3] == 0:
                 self.samples.save_sample(*state)
