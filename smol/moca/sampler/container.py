@@ -104,7 +104,7 @@ class SampleContainer(MSONable):
         self._enthalpy_av = np.empty((0, nwalkers))
         self._enthalpy2_av = np.empty((0, nwalkers))
         self._ccoords_av = np.empty((0, nwalkers, d_ccoords))
-        self._ccoords2_av = np.empty((0, nwalkers, d_ccoords))
+        self._ccoords2_av = np.empty((0, nwalkers, d_ccoords, d_ccoords)) # Stores av cov matrix
 
         self.aux_checkpoint = None
         self._backend = None  # for streaming
@@ -448,7 +448,7 @@ class SampleContainer(MSONable):
         self._enthalpy_av[self._nsamples, :] = enthalpy_av
         self._enthalpy2_av[self._nsamples, :] = enthalpy2_av
         self._ccoords_av[self._nsamples, :, :] = ccoords_av
-        self._ccoords2_av[self._nsamples, :, :] = ccoords2_av
+        self._ccoords2_av[self._nsamples, :, :, :] = ccoords2_av
 
         self._nsamples += 1
         self.total_mc_steps += thinned_by
@@ -474,7 +474,7 @@ class SampleContainer(MSONable):
 
         d = self._ccoords_av.shape[-1]
         self._ccoords_av = np.empty((0, nwalkers, d))
-        self._ccoords2_av = np.empty((0, nwalkers, d))
+        self._ccoords2_av = np.empty((0, nwalkers, d, d))
 
     def allocate(self, nsamples):
         """Allocate more space in arrays for more samples."""

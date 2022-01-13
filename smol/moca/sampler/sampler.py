@@ -247,9 +247,9 @@ class Sampler:
                 enthalpy2_sum = np.sum((enthalpy_chunk ** 2) * mask,
                                       axis = 1)
                 ccoords_sum = np.sum(ccoords_chunk * mask[:, :, None],
-                                        axis = 1)
-                ccoords2_sum = np.sum((ccoords_chunk ** 2) * mask[:, :, None],
                                      axis = 1)
+                ccoords2_sum = np.sum(ccoords_chunk[:,:,:,None] * ccoords_chunk[:,:,None,:] * mask[:, :, None, None],
+                                      axis = 1) # 1st dim: occu_id, 2nd dim: step_id, 3 & 4 dim: cov matrix
 
                 enthalpy_av = np.array([enthalpy_sum[i]/n_samples_chunk[i]
                                         if n_samples_chunk[i] != 0 else 0
@@ -262,7 +262,7 @@ class Sampler:
                                       for i in range(occupancies.shape[0])])
                 ccoords2_av = np.array([ccoords2_sum[i]/n_samples_chunk[i]
                                       if n_samples_chunk[i] != 0 else np.zeros(ccoords_sum.shape[1])
-                                      for i in range(occupancies.shape[0])])
+                                      for i in range(occupancies.shape[0])]) # 3d tensor, 1st d: occu_id, 2 and 3 d: cov matrix.
 
 
                 snap = (accepted, temperature, occupancies.copy(), bias.copy(),
@@ -282,13 +282,13 @@ class Sampler:
                         print("filt:", filt)
                         print("enthalpy2_av:", enthalpy2_av)
                         print("enthalpy_av**2:", enthalpy_av**2)
-                filt2 = (n_samples_chunk != 0) & (n_hops_comp == 0)
-                if np.sum(filt2) > 0:
-                    if not np.allclose(ccoords2_av[filt2, :], ccoords_av[filt2, :]**2, atol=1E-3):
-                        print("Warning! Variance mismatch ccoords.")
-                        print("flit:", filt2)
-                        print("ccoords2_av:", ccoords2_av)
-                        print("ccoords_av:", ccoords_av**2)
+                #filt2 = (n_samples_chunk != 0) & (n_hops_comp == 0)
+                #if np.sum(filt2) > 0:
+                #    if not np.allclose(ccoords2_av[filt2, :], ccoords_av[filt2, :]**2, atol=1E-3):
+                #        print("Warning! Variance mismatch ccoords.")
+                #        print("flit:", filt2)
+                #        print("ccoords2_av:", ccoords2_av)
+                #        print("ccoords_av:", ccoords_av**2)
                 yield snap
 
                 # Clear culumant values in chunk.
