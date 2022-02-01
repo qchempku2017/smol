@@ -261,7 +261,7 @@ class Sampler:
                                       if n_samples_chunk[i] != 0 else np.zeros(ccoords_sum.shape[1])
                                       for i in range(occupancies.shape[0])])
                 ccoords2_av = np.array([ccoords2_sum[i]/n_samples_chunk[i]
-                                      if n_samples_chunk[i] != 0 else np.zeros(ccoords_sum.shape[1])
+                                      if n_samples_chunk[i] != 0 else np.zeros((ccoords_sum.shape[1],ccoords_sum.shape[1]))
                                       for i in range(occupancies.shape[0])]) # 3d tensor, 1st d: occu_id, 2 and 3 d: cov matrix.
 
 
