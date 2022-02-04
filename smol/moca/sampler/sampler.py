@@ -203,6 +203,7 @@ class Sampler:
         with progress_bar(progress, total=nsteps, description=desc) as bar:
             for _ in range(nsteps // thin_by):
                 enthalpy_chunk = np.zeros((occupancies.shape[0], thin_by))
+                energy_chunk = np.zeros((occupancies.shape[0], thin_by))
                 ccoords_chunk = np.zeros((occupancies.shape[0], thin_by,
                                           ccoords_prev.shape[1]))
                 bias_chunk = np.zeros((occupancies.shape[0], thin_by))
@@ -222,6 +223,9 @@ class Sampler:
 
                         bias_chunk[i, j] = occu_bias
                         enthalpy_chunk[i, j] = enthalpy[i]
+
+                        # Only used for testing charge neutral methods.
+                        energy_chunk[i, j] = np.dot(features[i,:-1], self._kernel.natural_params[:-1])
                         if abs(occu_bias) < 1E-6:
                             ccoords_chunk[i, j, :] = ccoords_gen(occupancy)
                         # Only neutral structs can be converted.
@@ -246,6 +250,10 @@ class Sampler:
                                      axis = 1)
                 enthalpy2_sum = np.sum((enthalpy_chunk ** 2) * mask,
                                       axis = 1)
+                energy_sum = np.sum(energy_chunk * mask,
+                                     axis = 1)
+                energy2_sum = np.sum((energy_chunk ** 2) * mask,
+                                      axis = 1)
                 ccoords_sum = np.sum(ccoords_chunk * mask[:, :, None],
                                      axis = 1)
                 ccoords2_sum = np.sum(ccoords_chunk[:,:,:,None] * ccoords_chunk[:,:,None,:] * mask[:, :, None, None],
@@ -255,6 +263,12 @@ class Sampler:
                                         if n_samples_chunk[i] != 0 else 0
                                         for i in range(occupancies.shape[0])])
                 enthalpy2_av = np.array([enthalpy2_sum[i]/n_samples_chunk[i]
+                                        if n_samples_chunk[i] != 0 else 0
+                                        for i in range(occupancies.shape[0])])
+                energy_av = np.array([energy_sum[i]/n_samples_chunk[i]
+                                        if n_samples_chunk[i] != 0 else 0
+                                        for i in range(occupancies.shape[0])])
+                energy2_av = np.array([energy2_sum[i]/n_samples_chunk[i]
                                         if n_samples_chunk[i] != 0 else 0
                                         for i in range(occupancies.shape[0])])
                 ccoords_av = np.array([ccoords_sum[i]/n_samples_chunk[i]
@@ -269,6 +283,7 @@ class Sampler:
                         times.copy(), enthalpy.copy(), features.copy(),
                         n_samples_chunk.copy(), n_hops_occu.copy(), n_hops_comp.copy(),
                         enthalpy_av.copy(), enthalpy2_av.copy(),
+                        energy_av.copy(), energy2_av.copy(),
                         ccoords_av.copy(), ccoords2_av.copy(),
                         thin_by)
                 #print("snapshot:", snap)

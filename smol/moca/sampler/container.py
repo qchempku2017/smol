@@ -103,6 +103,8 @@ class SampleContainer(MSONable):
         self._n_hops_comp = np.empty((0, nwalkers))
         self._enthalpy_av = np.empty((0, nwalkers))
         self._enthalpy2_av = np.empty((0, nwalkers))
+        self._energy_av = np.empty((0, nwalkers))
+        self._energy2_av = np.empty((0, nwalkers))
         self._ccoords_av = np.empty((0, nwalkers, d_ccoords))
         self._ccoords2_av = np.empty((0, nwalkers, d_ccoords, d_ccoords)) # Stores av cov matrix
 
@@ -411,6 +413,7 @@ class SampleContainer(MSONable):
                     enthalpy, features,
                     n_samples, n_hops_occu, n_hops_comp,
                     enthalpy_av, enthalpy2_av,
+                    energy_av, energy2_av,
                     ccoords_av, ccoords2_av,
                     thinned_by):
         """Save a sample from the generated chain.
@@ -447,6 +450,8 @@ class SampleContainer(MSONable):
         self._n_hops_comp[self._nsamples, :] = n_hops_comp
         self._enthalpy_av[self._nsamples, :] = enthalpy_av
         self._enthalpy2_av[self._nsamples, :] = enthalpy2_av
+        self._energy_av[self._nsamples, :] = energy_av
+        self._energy2_av[self._nsamples, :] = energy2_av
         self._ccoords_av[self._nsamples, :, :] = ccoords_av
         self._ccoords2_av[self._nsamples, :, :, :] = ccoords2_av
 
@@ -471,6 +476,8 @@ class SampleContainer(MSONable):
         self._n_hops_comp = np.empty((0, nwalkers))
         self._enthalpy_av = np.empty((0, nwalkers))
         self._enthalpy2_av = np.empty((0, nwalkers))
+        self._energy_av = np.empty((0, nwalkers))
+        self._energy2_av = np.empty((0, nwalkers))
 
         d = self._ccoords_av.shape[-1]
         self._ccoords_av = np.empty((0, nwalkers, d))
@@ -503,6 +510,11 @@ class SampleContainer(MSONable):
         self._enthalpy_av = np.append(self._enthalpy_av, arr, axis=0)
         arr = np.empty((nsamples, *self._enthalpy2_av.shape[1:]))
         self._enthalpy2_av = np.append(self._enthalpy2_av, arr, axis=0)
+        arr = np.empty((nsamples, *self._energy_av.shape[1:]))
+        self._energy_av = np.append(self._energy_av, arr, axis=0)
+        arr = np.empty((nsamples, *self._energy2_av.shape[1:]))
+        self._energy2_av = np.append(self._energy2_av, arr, axis=0)
+
         arr = np.empty((nsamples, *self._ccoords_av.shape[1:]))
         self._ccoords_av = np.append(self._ccoords_av, arr, axis=0)
         arr = np.empty((nsamples, *self._ccoords2_av.shape[1:]))
@@ -526,6 +538,8 @@ class SampleContainer(MSONable):
         backend["n_hops_comp"][start:end, :] = self._n_hops_comp
         backend["enthalpy_av"][start:end, :] = self._enthalpy_av
         backend["enthalpy2_av"][start:end, :] = self._enthalpy2_av
+        backend["energy_av"][start:end, :] = self._energy_av
+        backend["energy2_av"][start:end, :] = self._energy2_av
         backend["ccoords_av"][start:end, :] = self._ccoords_av
         backend["ccoords2_av"][start:end, :] = self._ccoords2_av
 
@@ -618,6 +632,10 @@ class SampleContainer(MSONable):
                                (nsamples, *self._enthalpy_av.shape[1:]))
         backend.create_dataset("enthalpy2_av",
                                (nsamples, *self._enthalpy2_av.shape[1:]))
+        backend.create_dataset("energy_av",
+                               (nsamples, *self._energy_av.shape[1:]))
+        backend.create_dataset("energy2_av",
+                               (nsamples, *self._energy2_av.shape[1:]))
         backend.create_dataset("ccoords_av",
                                (nsamples, *self._ccoords_av.shape[1:]))
         backend.create_dataset("ccoords2_av",
@@ -655,6 +673,12 @@ class SampleContainer(MSONable):
         backend["enthalpy2_av"].resize((backend["enthalpy2_av"].shape[0]
                                        + nsamples,
                                        *self._enthalpy2_av.shape[1:]))
+        backend["energy_av"].resize((backend["energy_av"].shape[0]
+                                      + nsamples,
+                                      *self._energy_av.shape[1:]))
+        backend["energy2_av"].resize((backend["energy2_av"].shape[0]
+                                       + nsamples,
+                                       *self._energy2_av.shape[1:]))
         backend["ccoords_av"].resize((backend["ccoords_av"].shape[0]
                                      + nsamples,
                                      *self._ccoords_av.shape[1:]))
@@ -701,6 +725,8 @@ class SampleContainer(MSONable):
              'n_hops_comp': self._n_hops_comp.tolist(),
              'enthalpy_av': self._enthalpy_av.tolist(),
              'enthalpy2_av': self._enthalpy2_av.tolist(),
+             'energy_av': self._energy_av.tolist(),
+             'energy2_av': self._energy2_av.tolist(),
              'ccoords_av': self._ccoords_av.tolist(),
              'ccoords2_av': self._ccoords2_av.tolist(),
              'aux_checkpoint': self.aux_checkpoint}
@@ -734,6 +760,8 @@ class SampleContainer(MSONable):
         container._n_hops_comp = np.array(d['n_hops_comp'])
         container._enthalpy_av = np.array(d['enthalpy_av'])
         container._enthalpy2_av = np.array(d['enthalpy2_av'])
+        container._energy_av = np.array(d['energy_av'])
+        container._energy2_av = np.array(d['energy2_av'])
         container._ccoords_av = np.array(d['ccoords_av'])
         container._ccoords2_av = np.array(d['ccoords2_av'])
         return container
@@ -788,6 +816,8 @@ class SampleContainer(MSONable):
             container._n_hops_comp = f["n_hops_comp"][:nsamples]
             container._enthalpy_av = f["enthalpy_av"][:nsamples]
             container._enthalpy2_av = f["enthalpy2_av"][:nsamples]
+            container._energy_av = f["energy_av"][:nsamples]
+            container._energy2_av = f["energy2_av"][:nsamples]
             container._ccoords_av = f["ccoords_av"][:nsamples]
             container._ccoords2_av = f["ccoords2_av"][:nsamples]
 
