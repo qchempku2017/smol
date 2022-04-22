@@ -58,6 +58,7 @@ class MCMCKernel(ABC):
         self.feature_fun = ensemble.compute_feature_vector
         self._feature_change = ensemble.compute_feature_vector_change
         self.temperature = temperature
+        self.ensemble = ensemble
 
         try:
             if step_type in ['table-flip', 'subchain-walk']:
@@ -141,6 +142,15 @@ class Metropolis(MCMCKernel):
         """
         cur_time = time.time()
         step = self._usher.propose_step(occupancy)
+        print("\nCurrent occus on sublattices:")
+        for i, sublatt in enumerate(self.ensemble.sublattices):
+            print(f"sl {i}:", occupancy[sublatt.sites])
+        charge = (self.ensemble.processor
+                  .structure_from_occupancy(occupancy).charge)
+        print("Current charge:", charge)
+        print("Proposed step:", step)
+        assert charge == 0
+
         factor = self._usher.compute_a_priori_factor(occupancy, step)
         delta_features = self._feature_change(occupancy, step)
         delta_enthalpy = np.dot(self.natural_params, delta_features)
