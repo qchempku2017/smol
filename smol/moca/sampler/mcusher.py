@@ -324,17 +324,23 @@ class Tableflipper(MCMCUsher):
         # Masking effect will also be considered in a_priori factors.
 
         if random.random() < self.swap_weight:
+            #print("Propose a swap.")
             return self._swapper.propose_step(occupancy)
         elif masked_weights.sum() == 0:
             warnings.warn("Current occupancy can not be applied " +
                           "any table flip!")
+            #print("Propose a swap.")
             return self._swapper.propose_step(occupancy)
         else:
             species_list = occu_to_species_list(occupancy,
                                                 self.all_sublattices,
                                                 active_only=True)
 
+            #print("Species list:", species_list)
+            #print("All table flips:", self.flip_table)
+            #print("masks:", masked_weights)
             idx = choose_section_from_partition(masked_weights)
+            #print("chosen flip index:", idx)
             flip = deepcopy(self.flip_table[idx // 2])
 
             step = []
