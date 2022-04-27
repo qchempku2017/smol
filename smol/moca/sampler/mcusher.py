@@ -101,7 +101,7 @@ class MCUsher(ABC):
         """
         return []
 
-    def compute_log_priori_factor(self, occupancy, step):
+    def compute_log_priori_factor(self, occupancy, step, return_log_p=False):
         """Compute a-priori weight to adjust step acceptance ratio.
 
         This is essential in keeping detailed balance for some particular
@@ -113,11 +113,17 @@ class MCUsher(ABC):
                 encoded occupancy string
             step (list[tuple]):
                 Metropolis step. list of tuples each with (index, code).
+            return_log_p(bool): optional
+                Return forward and backward log proposal probabilities
+                instead. This will support multipoint sampling strategy.
+                Default to False.
 
         Returns:
             float: log of a-priori adjustment weight.
         """
-        return 0
+        if not return_log_p:
+            return 0
+        return 0, 0
 
     def update_aux_state(self, step, *args, **kwargs):
         """Update any auxiliary state information based on an accepted step."""
@@ -395,7 +401,7 @@ class Tableflip(MCUsher):
 
         return None, None
 
-    def compute_log_priori_factor(self, occupancy, step):
+    def compute_log_priori_factor(self, occupancy, step, return_log_p=False):
         """Compute a-priori weight to adjust step acceptance ratio.
 
         This is essential in keeping detailed balance. Return log for
@@ -407,6 +413,10 @@ class Tableflip(MCUsher):
             step (list[tuple]):
                 Metropolis step. list of tuples each with (index, code).
                 (Processor encoding.)
+            return_log_p(bool): optional
+                Return forward and backward log proposal probabilities
+                instead. This will support multipoint sampling strategy.
+                Default to False.
 
         Returns:
             float: log of a-priori adjustment ratio.
@@ -417,7 +427,11 @@ class Tableflip(MCUsher):
 
         if fid < 0:
             # Canonical swap
-            return 1
+            if not return_log_p:
+                return 0
+            else:
+                # TODO: this needs to be considered more seriously!
+                return 0, 0
 
         u = (-2 * direction + 1) * self.flip_table[fid]
 
@@ -438,19 +452,30 @@ class Tableflip(MCUsher):
                   / weights_next.sum())
 
         # Combinatorial factor.
-        log_factor = np.log(p_next / p_now)
+        # Both back and forth computed to support multi-point sampling.
+        log_p_back = np.log(p_next)
+        log_p_forth = np.log(p_now)
         dim_ids = np.arange(len(u), dtype=int)
         dims_from = dim_ids[u < 0]
         dims_to = dim_ids[u > 0]
+        sizes_sl = [int(sum(u[dim_id][u[dim_id] > 0]))
+                    for dim_id in self.dim_ids]
 
         for dim in dims_from:
-            log_factor += np.log(math.factorial(-u[dim])
-                                 * comb(n_now[dim], -u[dim]))
+            log_p_back += np.log(math.factorial(-u[dim]))
+            log_p_forth -= np.log(comb(n_now[dim], -u[dim]))
         for dim in dims_to:
-            log_factor -= np.log(math.factorial(u[dim])
-                                 * comb(n_next[dim], u[dim]))
+            log_p_back -= np.log(comb(n_next[dim], u[dim]))
+            log_p_forth += np.log(math.factorial(u[dim]))
 
-        return log_factor
+        if not return_log_p:
+            return log_p_back - log_p_forth
+
+        for size in sizes_sl:
+            log_p_back -= np.log(math.factorial(size))
+            log_p_forth -= np.log(math.factorial(size))
+
+        return log_p_back, log_p_forth
 
 
 def mcusher_factory(usher_type, sublattices, *args, **kwargs):
