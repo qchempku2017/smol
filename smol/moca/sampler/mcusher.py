@@ -65,6 +65,11 @@ class MCUsher(ABC):
         else:
             self._sublatt_probs = sublattice_probabilities
 
+        n_sites = sum(len(sublatt.sites) for sublatt in self.sublattices)
+        self._active_sublatt_id_table = np.zeros(n_sites) - 1
+        for i, sublatt in self.active_sublattices:
+            self._active_sublatt_id_table[sublatt.active_sites] = i
+
     @property
     def sublattice_probabilities(self):
         """Get the sublattice probabilities."""
@@ -159,6 +164,39 @@ class Flip(MCUsher):
         choices = set(sublattice.encoding) - {occupancy[site]}
         return [(site, rng.choice(list(choices)))]
 
+    def compute_log_priori_factor(self, occupancy, step, return_log_p=False):
+        """Compute a-priori weight to adjust step acceptance ratio.
+
+        This is essential in keeping detailed balance for some particular
+        metropolis proposal methods. Return log of the factor for numerical
+        accuracy.
+
+        Args:
+            occupancy (ndarray):
+                encoded occupancy string
+            step (list[tuple]):
+                Metropolis step. list of tuples each with (index, code).
+            return_log_p(bool): optional
+                Return forward and backward log proposal probabilities
+                instead. This will support multipoint sampling strategy.
+                Default to False.
+
+        Returns:
+            float: log of a-priori adjustment weight.
+        """
+        if not return_log_p:
+            return 0
+        else:
+            if len(step) != 1:
+                raise ValueError(f"Step {step} is not a valid single-species flip!")
+            sl_id = self._active_sublatt_id_table[step[0][0]]
+            if sl_id < 0:
+                raise ValueError(f"Step {step} is not on an active sub-lattice!")
+            p = (self.sublattice_probabilities[sl_id]
+                 / (len(self.active_sublattices[sl_id].encoding) - 1)
+                 / len(self.active_sublattices[sl_id].active_sites))
+            return np.log(p), np.log(p)
+
 
 class Swap(MCUsher):
     """Implementation of a simple swap step for two random sites."""
@@ -189,6 +227,62 @@ class Swap(MCUsher):
             # inefficient, maybe re-call method? infinite recursion problem
             swap = []
         return swap
+
+    def compute_log_priori_factor(self, occupancy, step, return_log_p=False):
+        """Compute a-priori weight to adjust step acceptance ratio.
+
+        This is essential in keeping detailed balance for some particular
+        metropolis proposal methods. Return log of the factor for numerical
+        accuracy.
+
+        Args:
+            occupancy (ndarray):
+                encoded occupancy string
+            step (list[tuple]):
+                Metropolis step. list of tuples each with (index, code).
+            return_log_p(bool): optional
+                Return forward and backward log proposal probabilities
+                instead. This will support multipoint sampling strategy.
+                Default to False.
+
+        Returns:
+            float: log of a-priori adjustment weight.
+        """
+        if not return_log_p:
+            return 0
+        else:
+            # These should enable multi-try monte-carlo.
+            if len(step) == 0:
+                mask = [np.all(occupancy[sublatt.active_sites]
+                               == occupancy[sublatt.active_sites[0]])
+                        for sublatt in self.active_sublattices]
+                p = np.array(self.sublattice_probabilities)[mask].sum()
+                if p == 0:
+                    raise ValueError("Empty step provided when occupancy "
+                                     "still has some valid swap.")
+            elif len(step) == 2:
+                if (occupancy[step[0][0]] != step[1][1]
+                        or occupancy[step[1][0]] != step[0][1]):
+                    raise ValueError(f"Step {step} is not a canonical swap!")
+                sl_id = None
+                for i, sublatt in enumerate(self.active_sublattices):
+                    if np.any(sublatt.active_sites == step[0][0]):
+                        sl_id = i
+                        break
+                if sl_id is None:
+                    raise ValueError(f"Swap {step} not on a same active sub-lattice!")
+                if not np.any(self.active_sublattices[sl_id].active_sites
+                              == step[1][0]):
+                    raise ValueError(f"Swap {step} not on a same active sub-lattice!")
+                sublattice_occu = occupancy[self.active_sublattices[sl_id].active_sites]
+                n_options = np.sum(sublattice_occu != occupancy[step[0][0]])
+                if n_options == 0:
+                    raise ValueError(f"Step {step} is not a valid step!")
+                p = self.sublattice_probabilities[sl_id] / n_options
+            else:
+                raise ValueError(f"Step {step} is not a typical 2-sites "
+                                 f"canonical swap!")
+            return np.log(p), np.log(p)
 
 
 class Tableflip(MCUsher):
@@ -429,9 +523,13 @@ class Tableflip(MCUsher):
             # Canonical swap
             if not return_log_p:
                 return 0
-            else:
-                # TODO: this needs to be considered more seriously!
-                return 0, 0
+
+            # Required by multi-try MC.
+            log_p_back, log_p_forth =\
+                self._swapper.compute_log_priori_factor(occupancy, step,
+                                                        return_log_p=return_log_p)
+            return (log_p_back + np.log(self.swap_weight),
+                    log_p_forth + np.log(self.swap_weight))
 
         u = (-2 * direction + 1) * self.flip_table[fid]
 

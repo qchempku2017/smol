@@ -63,7 +63,7 @@ def multitry_kernel():
                                                         {"Li+": 0, "Zr4+": 0,
                                                          "Mn3+": 0, "O2-": 0,
                                                          "F-": 0})
-    return Multitry(ensemble, "table-flip", 1E8, k=3)
+    return Multitry(ensemble, "tableflip", 1E8, k=3)
 
 
 @pytest.mark.parametrize("step_type, mcusher", [("swap", Swap), ("flip", Flip),
@@ -157,9 +157,9 @@ def test_multitry(multitry_kernel):
         assert n[3:].sum() == 3
         return comb(3, n[0]) * comb(3 - n[0], n[1]) * comb(3, n[3])
 
-    rand_occu_lmtpo = gen_random_neutral_occupancy(multitry_kernel)
-    occu = rand_occu_lmtpo.copy()
     sublattices = multitry_kernel.mcusher.sublattices
+    rand_occu_lmtpo = gen_random_neutral_occupancy(sublattices)
+    occu = rand_occu_lmtpo.copy()
     bias = SquarechargeBias(sublattices)
     o_counter = Counter()
     n_counter = Counter()

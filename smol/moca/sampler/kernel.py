@@ -445,8 +445,6 @@ class Multitry(ThermalKernel):
         # Make k forth proposals.
         for j in range(self.k):
             step = self._usher.propose_step(occupancy)
-            print(self._usher.compute_log_priori_factor(occupancy, step,
-                                                        return_log_p=True))
             log_p_back, log_p_forth =\
                 self._usher.compute_log_priori_factor(occupancy, step,
                                                       return_log_p=True)
