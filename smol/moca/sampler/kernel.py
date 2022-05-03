@@ -392,6 +392,7 @@ class Metropolis(ThermalKernel):
         return self.trace
 
 
+# TODO: test fail, figure out why?
 class Multitry(ThermalKernel):
     """A Multi-try kernel, with lambda=1.
 
@@ -463,7 +464,10 @@ class Multitry(ThermalKernel):
 
         # Choose one from k forth proposals.
         w_norm = np.exp(log_ws_forth)
-        w_norm = w_norm / w_norm.sum()
+        w_norm = (w_norm / w_norm.sum()
+                  if w_norm.sum() != 0
+                  else np.ones(len(w_norm)) / len(w_norm))
+
         ii = rng.choice(self.k, p=w_norm)
         (step_ii, log_p_back_ii, log_p_forth_ii,
          delta_features_ii, delta_enthalpy_ii, delta_bias_ii)\
@@ -500,11 +504,18 @@ class Multitry(ThermalKernel):
             self.trace.delta_trace.bias = delta_bias_ii
 
         # center these for numerical accuracy.
-        log_ws_forth = np.array(log_ws_forth) - np.min(log_ws_forth + log_ws_back)
-        log_ws_back = np.array(log_ws_back) - np.min(log_ws_forth + log_ws_back)
+        # This line used to cause problem
+        center = min(np.average(log_ws_forth), np.average(log_ws_back))
+        log_ws_forth = np.array(log_ws_forth) - center
+        log_ws_back = np.array(log_ws_back) - center
+        # Adjusted for numerical accuracy.
         ws_forth = np.exp(log_ws_forth)
         ws_back = np.exp(log_ws_back)
-        exponent = np.log(np.sum(ws_forth)) - np.log(np.sum(ws_back))
+        log_sum_ws_forth = (np.log(np.sum(ws_forth)) if np.sum(ws_forth) != 0
+                            else -np.inf)
+        log_sum_ws_back = (np.log(np.sum(ws_back)) if np.sum(ws_back) != 0
+                           else -np.inf)
+        exponent = log_sum_ws_forth - log_sum_ws_back
         self.trace.accepted = np.array(True if exponent >= 0
                                        else exponent > log(rng.random()))
 

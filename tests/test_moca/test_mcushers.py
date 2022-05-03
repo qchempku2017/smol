@@ -182,7 +182,7 @@ def test_table_flip(table_flip, rand_occu_lmtpo):
     n_counter = Counter()
 
     # Uniformly random kernel.
-    # print("Sublattices:", table_flip.sublattices)
+    print("Sublattices:", table_flip.sublattices)
     l = 100000
     for i in range(l):
         assert bias.compute_bias(occu) == 0

@@ -20,6 +20,8 @@ from smol.moca.sampler.kernel import (
 )
 from smol.moca.sampler.mcusher import Flip, Swap, Tableflip
 from smol.moca.utils.math_utils import comb
+from smol.moca.utils.occu_utils import (get_dim_ids_table, occu_to_species_n,
+                                        get_dim_ids_by_sublattice)
 from tests.utils import gen_random_occupancy, gen_random_neutral_occupancy
 
 from pymatgen.core import Structure, Lattice
@@ -63,7 +65,11 @@ def multitry_kernel():
                                                         {"Li+": 0, "Zr4+": 0,
                                                          "Mn3+": 0, "O2-": 0,
                                                          "F-": 0})
-    return Multitry(ensemble, "tableflip", 1E8, k=3)
+    return Multitry(ensemble, "tableflip", 1E8, k=3,
+                    optimize_basis=True,  # Make table ergodic.
+                    table_ergodic=True,
+                    swap_weight=0.2
+                    )
 
 
 @pytest.mark.parametrize("step_type, mcusher", [("swap", Swap), ("flip", Flip),
@@ -138,26 +144,27 @@ def test_temperature_setter(single_canonical_ensemble):
 
 def test_multitry(multitry_kernel):
 
-    def get_n(occu, sublattices):
-        sl1, sl2 = sublattices
-        n = np.array([(occu[sl1.sites] == 0).sum(),
-                      (occu[sl1.sites] == 1).sum(),
-                      (occu[sl1.sites] == 2).sum(),
-                      (occu[sl2.sites] == 0).sum(),
-                      (occu[sl2.sites] == 1).sum()],
-                     dtype=int
-                     )
-        return n
+    def get_n(occu, dim_ids_table):
+        return occu_to_species_n(occu, 5, dim_ids_table)
 
     def get_hash(a):
         return tuple(a.tolist())
 
-    def get_n_states(n):
-        assert n[:3].sum() == 3
-        assert n[3:].sum() == 3
-        return comb(3, n[0]) * comb(3 - n[0], n[1]) * comb(3, n[3])
+    def get_n_states(n, dim_ids):
+        assert len(n) == 5
+        c = 1
+        for dim_id in dim_ids:
+            assert n[dim_id].sum() == 3
+            n_sl = 3
+            for d in dim_id:
+                c = c * comb(n_sl, n[d])
+                n_sl = n_sl - n[d]
+        return c
 
     sublattices = multitry_kernel.mcusher.sublattices
+    dim_ids_table = get_dim_ids_table(sublattices, active_only=True)
+    bits = [sublatt.species for sublatt in sublattices]
+    dim_ids = get_dim_ids_by_sublattice(bits)
     rand_occu_lmtpo = gen_random_neutral_occupancy(sublattices)
     occu = rand_occu_lmtpo.copy()
     bias = SquarechargeBias(sublattices)
@@ -165,11 +172,14 @@ def test_multitry(multitry_kernel):
     n_counter = Counter()
 
     # Uniformly random kernel.
-    # print("Sublattices:", table_flip.sublattices)
+    tableflip = multitry_kernel.mcusher
+    # print("Sublattices:", tableflip.sublattices)
+    # print("Flip table:", tableflip.flip_table)
     l = 100000
+    # l = 100
     for i in range(l):
         assert bias.compute_bias(occu) == 0
-        n = get_n(occu, sublattices)
+        n = get_n(occu, dim_ids_table)
         n_counter[get_hash(n)] += 1
         o_counter[get_hash(occu)] += 1
 
@@ -183,19 +193,22 @@ def test_multitry(multitry_kernel):
 
     # When finished, see if distribution is correct.
     assert len(n_counter) == 3
+    # print("n_counter:", n_counter)
     n_occus = []
     for n_hash in n_counter.keys():
         n = np.array(n_hash, dtype=int)
-        n_occus.append(get_n_states(n))
+        n_occus.append(get_n_states(n, dim_ids))
     n_occus = np.array(n_occus)
     assert len(o_counter) == sum(n_occus)
     o_count_av = l / sum(n_occus)
-    npt.assert_allclose(np.array(list(o_counter.values())) / o_count_av,
-                        1, atol=0.1)
+
     n_counts = np.array(list(n_counter.values()))
     r_counts = n_counts / n_counts.sum()
     r_occus = n_occus / n_occus.sum()
     npt.assert_allclose(r_counts, r_occus, atol=0.1)
+    npt.assert_allclose(np.array(list(o_counter.values())) / o_count_av,
+                        1, atol=0.1)
+    # print("n_counts:", n_counts)
     # print("r_counts:", r_counts)
     # print("r_occus:", r_occus)
     # print("occupancies:", o_counter)

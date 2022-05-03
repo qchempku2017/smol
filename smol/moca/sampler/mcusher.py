@@ -66,8 +66,8 @@ class MCUsher(ABC):
             self._sublatt_probs = sublattice_probabilities
 
         n_sites = sum(len(sublatt.sites) for sublatt in self.sublattices)
-        self._active_sublatt_id_table = np.zeros(n_sites) - 1
-        for i, sublatt in self.active_sublattices:
+        self._active_sublatt_id_table = np.zeros(n_sites, dtype=int) - 1
+        for i, sublatt in enumerate(self.active_sublattices):
             self._active_sublatt_id_table[sublatt.active_sites] = i
 
     @property
@@ -264,21 +264,20 @@ class Swap(MCUsher):
                 if (occupancy[step[0][0]] != step[1][1]
                         or occupancy[step[1][0]] != step[0][1]):
                     raise ValueError(f"Step {step} is not a canonical swap!")
-                sl_id = None
-                for i, sublatt in enumerate(self.active_sublattices):
-                    if np.any(sublatt.active_sites == step[0][0]):
-                        sl_id = i
-                        break
-                if sl_id is None:
-                    raise ValueError(f"Swap {step} not on a same active sub-lattice!")
+                sl_id = self._active_sublatt_id_table[step[0][0]]
+                if sl_id < 0:
+                    raise ValueError(f"Swap {step} not on active sub-lattice!")
                 if not np.any(self.active_sublattices[sl_id].active_sites
                               == step[1][0]):
-                    raise ValueError(f"Swap {step} not on a same active sub-lattice!")
+                    raise ValueError(f"Swap {step} not on a same sub-lattice!")
                 sublattice_occu = occupancy[self.active_sublattices[sl_id].active_sites]
-                n_options = np.sum(sublattice_occu != occupancy[step[0][0]])
-                if n_options == 0:
-                    raise ValueError(f"Step {step} is not a valid step!")
-                p = self.sublattice_probabilities[sl_id] / n_options
+                n_options1 = len(sublattice_occu)
+                if n_options1 == 0:
+                    raise ValueError(f"Swap {step} not on active sub-lattice!")
+                n_options2 = np.sum(sublattice_occu != occupancy[step[0][0]])
+                if n_options2 == 0:
+                    raise ValueError(f"Step {step} is not a canonical swap!!")
+                p = self.sublattice_probabilities[sl_id] / n_options1 / n_options2
             else:
                 raise ValueError(f"Step {step} is not a typical 2-sites "
                                  f"canonical swap!")
@@ -516,6 +515,7 @@ class Tableflip(MCUsher):
             float: log of a-priori adjustment ratio.
         """
         fid, direction = self._get_flip_id(occupancy, step)
+
         if fid is None:
             raise ValueError(f"Step {step} is not in flip table.")
 
