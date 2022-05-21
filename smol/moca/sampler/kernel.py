@@ -392,7 +392,6 @@ class Metropolis(ThermalKernel):
         return self.trace
 
 
-# TODO: test fail, figure out why?
 class Multitry(ThermalKernel):
     """A Multi-try kernel, with lambda=1.
 
