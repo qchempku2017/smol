@@ -111,7 +111,10 @@ class MCKernel(ABC):
     valid_bias = None
 
     def __init__(
-        self, ensemble, step_type, *args, bias_type=None, bias_kwargs=None, **kwargs
+        self, ensemble, step_type, *args,
+        step_kwargs=None,
+        bias_type=None, bias_kwargs=None,
+        **kwargs
     ):
         """Initialize MCKernel.
 
@@ -121,6 +124,9 @@ class MCKernel(ABC):
                 used in computing log probabilities.
             step_type (str):
                 string specifying the MCMC step type.
+            step_kwargs (dict):
+                dictionary of keyword arguments to pass to the MCUsher
+                constructor.
             bias (MCBias):
                 a bias instance.
             bias_kwargs (dict):
@@ -130,8 +136,7 @@ class MCKernel(ABC):
                 positional arguments to instantiate the MCUsher for the
                 corresponding step size.
             kwargs:
-                keyword arguments to instantiate the MCUsher for the
-                corresponding step size.
+                Additional keyword arguments to instantiate the Kernel.
         """
         self.natural_params = ensemble.natural_parameters
         self._compute_features = ensemble.compute_feature_vector
@@ -140,11 +145,12 @@ class MCKernel(ABC):
         self._usher, self._bias = None, None
 
         mcusher_name = class_name_from_str(step_type)
+        step_kwargs = {} if step_kwargs is None else step_kwargs
         self.mcusher = mcusher_factory(
             mcusher_name,
             ensemble.sublattices,
             *args,
-            **kwargs,
+            **step_kwargs,
         )
 
         if bias_type is not None:
@@ -249,8 +255,8 @@ class ThermalKernel(MCKernel):
                 positional arguments to instantiate the MCUsher for the
                 corresponding step size.
             kwargs:
-                keyword arguments to instantiate the MCUsher for the
-                corresponding step size.
+                keyword arguments to instantiate the Kernel and MCUsher, Bias,
+                etc.
         """
         # hacky for initialization single_step to run
         self.beta = 1.0 / (kB * temperature)
@@ -418,8 +424,7 @@ class Multitry(ThermalKernel):
                 positional arguments to instantiate the MCUsher for the
                 corresponding step size.
             kwargs:
-                keyword arguments to instantiate the MCUsher for the
-                corresponding step size.
+                keyword arguments to instantiate the MCUsher, bias, etc.
         """
         # hacky for initialization single_step to run
         self.k = k

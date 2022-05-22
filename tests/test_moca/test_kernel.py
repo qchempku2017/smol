@@ -65,11 +65,15 @@ def multitry_kernel():
                                                         {"Li+": 0, "Zr4+": 0,
                                                          "Mn3+": 0, "O2-": 0,
                                                          "F-": 0})
-    return Multitry(ensemble, "tableflip", 1E8, k=3,
-                    optimize_basis=True,  # Make table ergodic.
-                    table_ergodic=True,
-                    swap_weight=0.2
-                    )
+    kernel = Multitry(ensemble, "tableflip", 1E8, k=3,
+                      step_kwargs={
+                          "optimize_basis": True,  # Make table ergodic.
+                          "table_ergodic": True,
+                          "swap_weight": 0.2
+                      }
+                      )
+    assert np.isclose(kernel.mcusher.swap_weight, 0.2)
+    return kernel
 
 
 @pytest.mark.parametrize("step_type, mcusher", [("swap", Swap), ("flip", Flip),
@@ -143,7 +147,6 @@ def test_temperature_setter(single_canonical_ensemble):
 
 
 def test_multitry(multitry_kernel):
-
     def get_n(occu, dim_ids_table):
         return occu_to_species_n(occu, 5, dim_ids_table)
 
