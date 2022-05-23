@@ -442,7 +442,9 @@ class Tableflip(MCUsher):
                                  species_n, self.max_n).astype(int)
         masked_weights = self.flip_weights * mask
         # Mask out impossible selections.
-        if masked_weights.sum() == 0:
+        if masked_weights.sum() == 0 and not np.allclose(occupancy, 0):
+            # The second condition is to supress warning when mckernel
+            # initializes its trace with an all-0 occupancy.
             warnings.warn("Current occupancy is not ergodic! "
                           "Will do canonical swap only!")
             return self._swapper.propose_step(occupancy)
