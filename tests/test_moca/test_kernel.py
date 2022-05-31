@@ -69,10 +69,10 @@ def multitry_kernel():
                       step_kwargs={
                           "optimize_basis": True,  # Make table ergodic.
                           "table_ergodic": True,
-                          "swap_weight": 0.2
+                          "swap_weight": 0.4
                       }
                       )
-    assert np.isclose(kernel.mcusher.swap_weight, 0.2)
+    assert np.isclose(kernel.mcusher.swap_weight, 0.4)
     return kernel
 
 
