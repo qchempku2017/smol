@@ -272,13 +272,20 @@ class Swap(MCUsher):
                               == step[1][0]):
                     raise ValueError(f"Swap {step} not on a same sub-lattice!")
                 sublattice_occu = occupancy[self.active_sublattices[sl_id].active_sites]
-                n_options1 = len(sublattice_occu)
-                if n_options1 == 0:
+                n_options11 = len(sublattice_occu)
+                if n_options11 == 0:
                     raise ValueError(f"Swap {step} not on active sub-lattice!")
-                n_options2 = np.sum(sublattice_occu != occupancy[step[0][0]])
-                if n_options2 == 0:
+                n_options21 = np.sum(sublattice_occu != occupancy[step[0][0]])
+                if n_options21 == 0:
                     raise ValueError(f"Step {step} is not a canonical swap!!")
-                p = self.sublattice_probabilities[sl_id] / n_options1 / n_options2
+                n_options12 = len(sublattice_occu)
+                n_options22 = np.sum(sublattice_occu != occupancy[step[1][0]])
+                if n_options22 == 0:
+                    raise ValueError(f"Step {step} is not a canonical swap!!")
+                # p must have exchange symmetry wrt step order.
+                p = (self.sublattice_probabilities[sl_id]
+                     * (1 / (n_options11 * n_options21)
+                        + 1 / (n_options12 * n_options22)))
             else:
                 raise ValueError(f"Step {step} is not a typical 2-sites "
                                  f"canonical swap!")

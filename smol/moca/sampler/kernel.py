@@ -518,7 +518,7 @@ class Multitry(ThermalKernel):
             log_w = -self.beta * delta_enthalpy + delta_bias + log_p_back
             log_ws_back.append(log_w)
         # Enforce original occupancy as the last back proposal
-        log_w_ii = self.beta * delta_enthalpy_ii - delta_bias_ii + log_p_forth_ii
+        log_w_ii = log_p_forth_ii  # Because we go back to original state, which is reference "0".
         log_ws_back.append(log_w_ii)
 
         # Wrapping up proposal and do acceptance.

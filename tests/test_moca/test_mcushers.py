@@ -166,23 +166,38 @@ def test_table_flip_factors():
 
     tf = Tableflip(sublattices,
                    optimize_basis=True,
-                   table_ergodic=True)
+                   table_ergodic=True,
+                   swap_weight=0.4)
     # Case 1:
     occu1 = np.array([0, 0, 1, 0, 0, 0])
     step1 = [(2, 2), (4, 1)]
-    assert np.isclose(tf.compute_log_priori_factor(occu1, step1), np.log(3 / 2))  # forth p=1/3, back p=1/2
+    assert np.isclose(tf.compute_log_priori_factor(occu1, step1), np.log(3 / 2))  # forth p=1/3*0.6, back p=1/2*0.6
+    assert np.allclose(tf.compute_log_priori_factor(occu1, step1, return_log_p=True),
+                      (np.log(0.6 * 1 / 2), np.log(0.6 * 1 / 3)))
     # Case 2:
     occu2 = np.array([0, 0, 2, 1, 0, 0])
     step2 = [(2, 1), (3, 0)]
-    assert np.isclose(tf.compute_log_priori_factor(occu2, step2), np.log(2 / 3))  # forth p=1/2, back p=1/3
+    assert np.isclose(tf.compute_log_priori_factor(occu2, step2), np.log(2 / 3))  # forth p=1/2*0.6, back p=1/3*0.6
+    assert np.allclose(tf.compute_log_priori_factor(occu2, step2, return_log_p=True),
+                      (np.log(0.6 * 1 / 3), np.log(0.6 * 1 / 2)))
     # Case 3:
     occu3 = np.array([0, 0, 2, 1, 0, 0])
     step3 = [(2, 0), (4, 1), (5, 1)]
-    assert np.isclose(tf.compute_log_priori_factor(occu3, step3), np.log(2 / 9))  # forth p=1/2, back p=1/9
+    assert np.isclose(tf.compute_log_priori_factor(occu3, step3), np.log(2 / 9))  # forth p=1/2*0.6, back p=1/9*0.6
+    assert np.allclose(tf.compute_log_priori_factor(occu3, step3, return_log_p=True),
+                      (np.log(0.6 * 1 / 9), np.log(0.6 * 1 / 2)))
     # Case 4:
     occu4 = np.array([0, 0, 0, 1, 1, 1])
     step4 = [(0, 2), (4, 0), (5, 0)]
-    assert np.isclose(tf.compute_log_priori_factor(occu4, step4), np.log(9 / 2))  # forth p=1/9, back p=1/2
+    assert np.isclose(tf.compute_log_priori_factor(occu4, step4), np.log(9 / 2))  # forth p=1/9*0.6, back p=1/2*0.6
+    assert np.allclose(tf.compute_log_priori_factor(occu4, step4, return_log_p=True),
+                      (np.log(0.6 * 1 / 2), np.log(0.6 * 1 / 9)))
+    # Case 5 canonical swap
+    occu5 = np.array([0, 0, 2, 1, 0, 0])
+    step5 = [(2, 0), (0, 2)]
+    assert np.isclose(tf.compute_log_priori_factor(occu5, step5), 0)  # forth p=0.4*1/2*1/2, back p=0.4*1/2*1/2
+    assert np.allclose(tf.compute_log_priori_factor(occu5, step5, return_log_p=True),
+                       (np.log(0.4 * 1 / 4), np.log(0.4 * 1 / 4)))
 
 
 def test_table_flip(table_flip, rand_occu_lmtpo):
