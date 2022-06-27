@@ -250,7 +250,7 @@ def dehash_occu(hashed):
 
 # Run MC on a null hamiltonian to check correctness of detail balance.
 # This will take some time.
-def get_all_neutral_occus(compspace):
+def get_all_neutral_occus(comp_space):
     compstats = comp_space.int_grids(sc_size=3, form='compstat')
     occus = []
     for c in compstats:
@@ -305,6 +305,35 @@ def test_mask():
              [0,0,0,1]]
     test_masks = [flip_weights_mask(table, c) for c in comp_stats]
     assert np.allclose(masks, test_masks)
+
+
+def test_table_flip_factors():
+    sites1 = np.array([0, 1, 2])
+    sites2 = np.array([3, 4, 5])
+    site_space1 = SiteSpace(Composition({"Li+": 2 / 3, "Zr4+": 1 / 6, "Mn3+": 1 / 6}))
+    site_space2 = SiteSpace(Composition({"O2-": 5 / 6, "F-": 1 / 6}))
+    sublattices = [Sublattice(site_space1, sites1), Sublattice(site_space2, sites2)]
+
+    tf = Tableflipper(sublattices, flip_table=[{"from": {0: {1: 1}, 1: {0: 1}},
+                                                "to": {0: {2: 1}, 1: {1: 1}}},
+                                               {"from": {0: {0: 1}, 1: {1: 2}},
+                                                "to": {0: {2: 1}, 1: {0: 2}}}])
+    # Case 1:
+    occu1 = np.array([0, 0, 1, 0, 0, 0])
+    step1 = [(2, 2), (4, 1)]
+    assert np.isclose(tf.compute_a_priori_factor(occu1, step1), 3 / 2)  # forth p=1/3, back p=1/2
+    # Case 2:
+    occu2 = np.array([0, 0, 2, 1, 0, 0])
+    step2 = [(2, 1), (3, 0)]
+    assert np.isclose(tf.compute_a_priori_factor(occu2, step2), 2 / 3)  # forth p=1/2, back p=1/3
+    # Case 3:
+    occu3 = np.array([0, 0, 2, 1, 0, 0])
+    step3 = [(2, 0), (4, 1), (5, 1)]
+    assert np.isclose(tf.compute_a_priori_factor(occu3, step3), 2 / 9)  # forth p=1/2, back p=1/9
+    # Case 4:
+    occu4 = np.array([0, 0, 0, 1, 1, 1])
+    step4 = [(0, 2), (4, 0), (5, 0)]
+    assert np.isclose(tf.compute_a_priori_factor(occu4, step4), 9 / 2)  # forth p=1/9, back p=1/2
 
 
 def test_neutral_probabilities():
