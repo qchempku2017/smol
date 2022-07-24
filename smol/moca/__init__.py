@@ -14,6 +14,7 @@ from .processor.composite import CompositeProcessor
 from .processor.ewald import EwaldProcessor
 from .processor.expansion import ClusterExpansionProcessor
 from .sampler.sampler import Sampler
+from .comp_space import CompSpace
 
 __all__ = [
     "ClusterExpansionProcessor",
@@ -24,4 +25,5 @@ __all__ = [
     "SemiGrandEnsemble",
     "Sampler",
     "SampleContainer",
+    "CompSpace"
 ]
