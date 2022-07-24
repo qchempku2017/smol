@@ -633,10 +633,13 @@ class WangLandau(MCKernel):
         elif new_energy >= self._window[1]:  # reject
             self.trace.accepted = np.array(False)
         else:
+            log_factor = self._usher.compute_log_priori_factor(occupancy, step)
             state = self._aux_states["entropy"][walker, bin_num]
             new_bin_num = self._get_bin(new_energy)
             new_state = self._aux_states["entropy"][walker, new_bin_num]
-            self.trace.accepted = np.array(state - new_state >= log(self._rng.random()))
+            exponent = state - new_state + log_factor  # From cn-sgmc.
+            self.trace.accepted = np.array(True if exponent >= 0
+                                           else exponent > log(self._rng.random()))
 
         if self.trace.accepted:
             for f in step:
@@ -648,7 +651,7 @@ class WangLandau(MCKernel):
             self._usher.update_aux_state(step)
 
         # only if bin_num is valid
-        if 0 < bin_num < len(self._energy_levels):
+        if 0 <= bin_num < len(self._energy_levels):
             # compute the cumulative statistics
             total = self._aux_states["total-histogram"][walker, bin_num]
             curr_mean = self._aux_states["mean-features"][walker, bin_num]
