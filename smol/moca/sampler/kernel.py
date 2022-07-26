@@ -596,6 +596,7 @@ class WangLandau(MCKernel):
         # check if histograms are flat and reset accordingly
         if self._aux_states["check-counter"] % self.check_period == 0:
             for i, histogram in enumerate(self._aux_states["histogram"]):
+                print("Update mod factor for walker:", i)
                 histogram = histogram[histogram > 0]  # remove zero entries
                 if (histogram > self.flatness * histogram.mean()).all():
                     self._mfactors[i] = self._mod_update(self._mfactors[i])
@@ -649,6 +650,7 @@ class WangLandau(MCKernel):
             self._aux_states["current-energy"][walker] = new_energy
             self._aux_states["current-features"][walker] = features
             self._usher.update_aux_state(step)
+        self.trace.occupancy = occupancy  # Should be saved!
 
         # only if bin_num is valid
         if 0 <= bin_num < len(self._energy_levels):
@@ -668,6 +670,7 @@ class WangLandau(MCKernel):
 
         # fill up values in the trace
         self.trace.histogram = self._aux_states["histogram"][walker]
+        self.trace.total_histogram = self._aux_states["total-histogram"][walker]
         self.trace.entropy = self._aux_states["entropy"][walker]
         self.trace.cumulative_mean_features = self._aux_states["mean-features"][walker]
         # this multiple walker thing is so unessecary!!!
@@ -691,6 +694,7 @@ class WangLandau(MCKernel):
         # This will not be counting the sate correspondint to the given occupancy.
         # but that is ok since we are not recording the initial trace when sampling.
         trace.histogram = self._aux_states["histogram"][0]
+        trace.total_histogram = self._aux_states["total-histogram"][0]
         trace.entropy = self._aux_states["entropy"][0]
         trace.cumulative_mean_features = self._aux_states["mean-features"][0]
         trace.mod_factor = self._mfactors[0]
