@@ -595,13 +595,15 @@ class WangLandau(MCKernel):
         self._aux_states["check-counter"] += 1
         # check if histograms are flat and reset accordingly
         if self._aux_states["check-counter"] % self.check_period == 0:
+            if self._aux_states["check-counter"] % self.check_period % 100 == 0:
+                print("Check time:", self._aux_states["check-counter"] % self.check_period)
             for i, histogram in enumerate(self._aux_states["histogram"]):
-                print("Update mod factor for walker:", i)
                 histogram_pos = histogram[histogram > 0]  # remove zero entries
                 if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
                     and len(histogram_pos) >= 0.5 * len(histogram)):
                     # A sufficient portion of histogram must have been populated.
                     # So be careful with your min and max energy setting.
+                    print("Update mod factor for walker:", i)
                     self._mfactors[i] = self._mod_update(self._mfactors[i])
                     self._aux_states["histogram"][i, :] = 0  # reset histogram
 
