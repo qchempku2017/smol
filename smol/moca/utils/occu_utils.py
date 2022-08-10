@@ -77,7 +77,7 @@ def occu_to_species_list(occupancy, d, dim_ids_table):
 
     Return:
         Index of sites occupied by each species, sublattices concatenated:
-            List[List[int]]
+            List[np.array[int]]
     """
     occu = np.array(occupancy, dtype=int)
     if len(occu) != len(dim_ids_table):
@@ -85,7 +85,7 @@ def occu_to_species_list(occupancy, d, dim_ids_table):
                          f"table size {len(dim_ids_table)}!")
     dim_ids = dim_ids_table[np.arange(len(occu), dtype=int), occu]
     all_sites = np.arange(len(occu), dtype=int)
-    return [all_sites[dim_ids == i].tolist() for i in range(d)]
+    return [all_sites[dim_ids == i] for i in range(d)]  # Output array to make fast.
 
 
 def occu_to_species_n(occupancy, d, dim_ids_table):
@@ -143,12 +143,15 @@ def delta_n_from_step(occu, step, d, dim_ids_table):
         Change of species amounts (delta_n):
             1D np.ndarray[int]
     """
-    occu_now = np.array(occu, dtype=int)
+    occu = np.array(occu, dtype=int)
     dim_ids_table = np.array(dim_ids_table, dtype=int)
     delta_n = np.zeros(d, dtype=int)
     # A step may involve a site multiple times.
+    step_dict = {}
     for site, code in step:
-        code_ori = occu_now[site]
+        step_dict[site] = (occu[site], code)
+    # Clean up step, only the last flip on a site take effect.
+    for site, (code_ori, code) in step_dict.items():
         dim_ori = dim_ids_table[site, code_ori]
         dim_nex = dim_ids_table[site, code]
         if dim_ori < 0 or dim_nex < 0:
@@ -156,6 +159,5 @@ def delta_n_from_step(occu, step, d, dim_ids_table):
                              f"involved in step {step}!")
         delta_n[dim_ori] -= 1
         delta_n[dim_nex] += 1
-        occu_now[site] = code
 
     return delta_n
