@@ -204,9 +204,9 @@ class MCKernel(ABC):
             self.trace.delta_trace.bias = np.zeros(1)
         self._bias = bias
 
-    def set_aux_state(self, state, *args, **kwargs):
-        """Set the auxiliary state from initial or checkpoint values."""
-        self._usher.set_aux_state(state, *args, **kwargs)
+    def set_aux_state(self, occupancy, *args, **kwargs):
+        """Set the auxiliary state from initial or checkpoint occupancy."""
+        self._usher.set_aux_state(occupancy, *args, **kwargs)
 
     @abstractmethod
     def single_step(self, occupancy):
@@ -349,9 +349,10 @@ class UniformlyRandom(MCKernel):
         )
 
         if self.trace.accepted:
+            # Must update with pre-acceptance state.
+            self._usher.update_aux_state(step, occupancy)
             for tup in step:
                 occupancy[tup[0]] = tup[1]
-            self._usher.update_aux_state(step)
 
         self.trace.occupancy = occupancy
         return self.trace
@@ -406,9 +407,10 @@ class Metropolis(ThermalKernel):
         )
 
         if self.trace.accepted:
+            # Must update with pre-acceptance state.
+            self._usher.update_aux_state(step, occupancy)
             for tup in step:
                 occupancy[tup[0]] = tup[1]
-            self._usher.update_aux_state(step)
         self.trace.occupancy = occupancy
 
         return self.trace
