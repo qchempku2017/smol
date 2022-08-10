@@ -315,6 +315,38 @@ class Tableflip(MCUsher):
                                                 active_only=True)
         self._dim_ids_full = get_dim_ids_table(self.sublattices,
                                                active_only=False)
+        # Make these aux states to be stored.
+        self._n = None
+        self._n_full = None  # Use this to check constraints.
+        self._species_list = None
+
+    def set_aux_state(self, occupancy, *args, **kwargs):
+        """Set auxiliary variables."""
+        self._species_list = occu_to_species_list(occupancy, self.d,
+                                                  self._dim_ids_table)
+        self._n = np.array([len(sites) for sites in self._species_list])
+        species_list_full = occu_to_species_list(occupancy, self.d,
+                                                 self._dim_ids_full)
+        self._n_full = np.array([len(sites) for sites in species_list_full])
+
+    def update_aux_state(self, step, occupancy, *args, **kwargs):
+        """Update auxiliary state."""
+        step_dict = {}
+        # Clean up with a dict.
+        for site, code in step:
+            step_dict[site] = (occupancy[site], code)
+        for site, (before, after) in step_dict.items():
+            dim_id_before = self._dim_ids_table[site, before]
+            dim_id_after = self._dim_ids_table[site, after]
+            self._species_list[dim_id_before].remove(site)
+            self._species_list[dim_id_after].append(site)
+            self._n[dim_id_before] -= 1
+            self._n[dim_id_after] += 1
+
+            full_id_before = self._dim_ids_full[site, before]
+            full_id_after = self._dim_ids_full[site, after]
+            self._n_full[full_id_before] -= 1
+            self._n_full[full_id_after] += 1
 
     def propose_step(self, occupancy):
         """Propose a single random flip step.
@@ -345,15 +377,10 @@ class Tableflip(MCUsher):
             return self._swapper.propose_step(occupancy)
 
         # We shall only flip active sites. And only active sites stated.
-        species_list = occu_to_species_list(occupancy, self.d,
-                                            self._dim_ids_table)
-        species_n = [len(sites) for sites in species_list]
-        species_list_full = occu_to_species_list(occupancy,
-                                                 self.d,
-                                                 self._dim_ids_full)
-        species_n_full = [len(sites) for sites in species_list_full]
+        species_list = self._species_list
+        species_n = self._n
 
-        if not np.allclose(self._compspace.A @ np.array(species_n_full),
+        if not np.allclose(self._compspace.A @ np.array(self._n_full),
                            self._compspace.b * self.sc_size):
             warnings.warn("Current occupancy violates compspace constraints! "
                           "Are you initializing trace?")
