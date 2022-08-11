@@ -92,6 +92,7 @@ def test_propose_step(mcmcusher, rand_occu):
     flipped_sites = []
     count1, count2 = 0, 0
     total = 0
+    mcmcusher.set_aux_state(occu)
     for i in range(iterations):
         step = mcmcusher.propose_step(occu)
         assert len(step) == len(set([s for s, c in step]))
@@ -170,22 +171,27 @@ def test_table_flip_factors():
     # Case 1:
     occu1 = np.array([0, 0, 1, 0, 0, 0])
     step1 = [(2, 2), (4, 1)]
+    tf.set_aux_state(occu1)  # Now requires setting aux state before computing.
     assert np.isclose(tf.compute_log_priori_factor(occu1, step1), np.log(3 / 2))  # forth p=1/3, back p=1/2
     # Case 2:
     occu2 = np.array([0, 0, 2, 1, 0, 0])
     step2 = [(2, 1), (3, 0)]
+    tf.set_aux_state(occu2)
     assert np.isclose(tf.compute_log_priori_factor(occu2, step2), np.log(2 / 3))  # forth p=1/2, back p=1/3
     # Case 3:
     occu3 = np.array([0, 0, 2, 1, 0, 0])
     step3 = [(2, 0), (4, 1), (5, 1)]
+    tf.set_aux_state(occu3)
     assert np.isclose(tf.compute_log_priori_factor(occu3, step3), np.log(2 / 9))  # forth p=1/2, back p=1/9
     # Case 4:
     occu4 = np.array([0, 0, 0, 1, 1, 1])
     step4 = [(0, 2), (4, 0), (5, 0)]
+    tf.set_aux_state(occu4)
     assert np.isclose(tf.compute_log_priori_factor(occu4, step4), np.log(9 / 2))  # forth p=1/9, back p=1/2
     # Case 5:
     occu5 = np.array([0, 0, 2, 1, 0, 0])
     step5 = [(2, 0), (0, 2)]
+    tf.set_aux_state(occu5)
     assert np.isclose(tf.compute_log_priori_factor(occu5, step5), 0)  # forth p=back p.
 
 
@@ -219,6 +225,7 @@ def test_table_flip(table_flip, rand_occu_lmtpo):
     # print("Sublattices:", table_flip.sublattices)
     # print("flip table:", table_flip.flip_table)
     l = 100000
+    table_flip.set_aux_state(occu)  # Must set aux before running.
     for i in range(l):
         assert bias.compute_bias(occu) == 0
         step = table_flip.propose_step(occu)
@@ -255,6 +262,8 @@ def test_table_flip(table_flip, rand_occu_lmtpo):
         # assert len(step) > 0
         if log_priori >= 0 or log_priori >= np.log(np.random.rand()):
             # Accepted.
+            table_flip.update_aux_state(step, occu)
+            # Update aux must be called before update occu!!
             occu = occu_next.copy()
 
     # When finished, see if distribution is correct.

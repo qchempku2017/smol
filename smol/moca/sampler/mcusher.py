@@ -474,8 +474,7 @@ class Tableflip(MCUsher):
 
         u = (-2 * direction + 1) * self.flip_table[fid]
 
-        n_now = occu_to_species_n(occupancy, self.d,
-                                  self._dim_ids_table)
+        n_now = self._n
         mask_now = flip_weights_mask(self.flip_table,
                                      n_now, self.max_n).astype(int)
         weights_now = self.flip_weights * mask_now
