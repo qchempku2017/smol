@@ -413,21 +413,20 @@ class Tableflip(MCUsher):
                 in enumerate(zip(self.sublattices, self.dim_ids)):
             if not sublatt.is_active:
                 continue
-            site_ids = []
+            site_ids = np.array([], dtype=int)
             dim_ids = np.array(dim_ids, dtype=int)
             u_sl = u[dim_ids]
             dims_from = dim_ids[u_sl < 0]
             dims_to = dim_ids[u_sl > 0]
             codes_to = sublatt.encoding[u_sl > 0]
             for d in dims_from:
-                site_ids.extend(rng.choice(species_list[d],
-                                           size=-1 * u[d],
-                                           replace=False).tolist())
+                np.random.shuffle(species_list[d])  # Same as choice but faster.
+                site_ids = np.append(site_ids, species_list[d][: -1 * u[d]])
+            np.random.shuffle(site_ids)  # Same as choice but faster.
             for d, code in zip(dims_to, codes_to):
-                for site_id in rng.choice(site_ids, size=u[d],
-                                          replace=False):
-                    step.append((int(site_id), int(code)))
-                    site_ids.remove(site_id)
+                for site_id in site_ids[: u[d]]:
+                    step.append((int(site_id), int(code)))  # avoid np.int32.
+                site_ids = site_ids[u[d] :]
             assert len(site_ids) == 0  # Site num conservation.
 
         return step
