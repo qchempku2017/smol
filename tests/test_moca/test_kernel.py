@@ -81,8 +81,10 @@ def test_trace(rng):
 
 def test_single_step(mckernel):
     occu_ = gen_random_occupancy(mckernel._usher.sublattices)
-    mckernel.set_aux_state(occu_)
-    for _ in range(20):
+    for i in range(20):
+        # Since we would not like aux state to change to next,
+        # We must update aux at each step in this test.
+        mckernel.set_aux_state(occu_)
         trace = mckernel.single_step(occu_.copy())
         if trace.accepted:
             assert not np.array_equal(trace.occupancy, occu_)
@@ -92,8 +94,10 @@ def test_single_step(mckernel):
 
 def test_single_step_bias(mckernel_bias):
     occu = gen_random_occupancy(mckernel_bias._usher.sublattices)
-    mckernel_bias.set_aux_state(occu)
     for _ in range(20):
+        # Since we would not like aux state to change to next,
+        # We must update aux at each step in this test.
+        mckernel_bias.set_aux_state(occu)
         trace = mckernel_bias.single_step(occu.copy())
         # assert delta bias is there and recorded
         assert isinstance(trace.delta_trace.bias, np.ndarray)

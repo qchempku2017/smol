@@ -171,6 +171,7 @@ class MCKernel(ABC):
             )
 
         # run a initial step to populate trace values
+        self.set_aux_state(np.zeros(ensemble.num_sites, dtype=int))
         _ = self.single_step(np.zeros(ensemble.num_sites, dtype=int))
 
     @property
@@ -408,6 +409,10 @@ class Metropolis(ThermalKernel):
 
         if self.trace.accepted:
             # Must update with pre-acceptance state.
+            # Notice: a usher aux_state is now detached from mckernel,
+            # and is updated after mckernel single_step! If you want
+            # usher aux_state unchanged, please manually set_aux_state
+            # for usher after a single step!
             self._usher.update_aux_state(step, occupancy)
             for tup in step:
                 occupancy[tup[0]] = tup[1]

@@ -21,7 +21,6 @@ from ..comp_space import CompSpace
 from ..utils.occu_utils import (get_dim_ids_by_sublattice,
                                 get_dim_ids_table,
                                 occu_to_species_list,
-                                occu_to_species_n,
                                 delta_n_from_step)
 from ..utils.math_utils import (choose_section_from_partition, gcd_list,
                                 flip_weights_mask, NUM_TOL)
@@ -198,6 +197,9 @@ class Tableflip(MCUsher):
     Direct use of this class is not recommended, because the
     dict form of the flip table is not very easy to read and
     write.
+
+    Notice: Tableflip will need set_aux_state before any call to
+    single_step to run normally!
     """
 
     def __init__(self, sublattices, rng=None,
@@ -338,8 +340,12 @@ class Tableflip(MCUsher):
         for site, (before, after) in step_dict.items():
             dim_id_before = self._dim_ids_table[site, before]
             dim_id_after = self._dim_ids_table[site, after]
-            self._species_list[dim_id_before].remove(site)
-            self._species_list[dim_id_after].append(site)
+            self._species_list[dim_id_before] = \
+                np.delete(self._species_list[dim_id_before],
+                          np.argwhere(self._species_list[dim_id_before]
+                                      == site))
+            self._species_list[dim_id_after] = \
+                np.append(self._species_list[dim_id_after], [site])
             self._n[dim_id_before] -= 1
             self._n[dim_id_after] += 1
 
