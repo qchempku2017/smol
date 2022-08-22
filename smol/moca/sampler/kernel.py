@@ -28,11 +28,12 @@ def facln(n):
 
 
 def log_add_exp(a, b):
-    """Gives log(exp(a) + exp(b)).
+    """Gives log(exp(a)exp(b)).
 
-    Good for summing 2 small numbers.
+    Good for summing 2 small POSITIVE numbers.
     """
-    return min(a, b) + np.log(1 + np.exp(max(a, b) - min(a, b)))
+    return (min(a, b)
+            + np.log(1 + np.exp(max(a, b) - min(a, b))))
 
 
 vector_log_add = np.vectorize(log_add_exp)
@@ -791,12 +792,17 @@ class WangLandauImportance(MCKernel):
                 more efficient exploration of energy space.
             production (bool): optional
                 Whether to run the current kernel in production mode. In the
-                production mode, cumulative composition importance function will
-                be computed for each bin.
+                production mode, mod_factor, histogram and entropies will not be
+                updated.
+                Note: when using production mode, make sure to pass in previous
+                entropy as an aux state!
             properties (list[(str, Callable)]):
                 Name of properties that you wish to save for each enthalpy bin,
                 and the corresponding callable function to compute them from
                 an occupancy array.
+                Note: can only handle positive properties, so if a property
+                can be negative or zero value, make sure to transform it to a positive
+                value in given callable!
             mod_update (Callable): optional
                 A function used to update the fill factor when the histogram
                 satisfies the flatness criteria. The function is used to update
@@ -815,6 +821,7 @@ class WangLandauImportance(MCKernel):
         self.flatness = flatness
         self.check_period = check_period
         self.update_period = update_period
+        self.production = production
         self._mfactors = np.array(
             nwalkers
             * [
@@ -855,14 +862,15 @@ class WangLandauImportance(MCKernel):
         self._aux_states["logsuminv-importance"] = \
             np.zeros((nwalkers, len(self._energy_levels)))
         for name, func in self._properties:
+            # express a number as x * exp (y)
             self._aux_states["logsum-" + name][:] = np.nan  # because start is log(0)
         self._aux_states["logsuminv-importance"][:] = np.nan
         # Only grand canonical ensemble need composition importance sampling.
-        if (hasattr(ensemble, "chemical_potentials") and
-                ensemble.chemical_potentials is not None):
-            self._grand_canonical = True
-        else:
-            self._grand_canonical = False
+        # if (hasattr(ensemble, "chemical_potentials") and
+        #         ensemble.chemical_potentials is not None):
+        #     self._grand_canonical = True
+        # else:
+        #     self._grand_canonical = False
         self._active_sites = [s.sites for s in ensemble.active_sublattices]
 
         super().__init__(
@@ -887,11 +895,12 @@ class WangLandauImportance(MCKernel):
 
     def compute_log_comp_importance(self, occu):
         """Compute composition importance function."""
-        return np.sum(np.fromiter(
-            (facln(n) for sites in self._active_sites
-             for values, counts in np.unique(occu[sites],
-                                             return_counts=True)
-             for n in values), float))
+        log_importance = 0
+        for sites in self._active_sites:
+            values, counts = np.unique(occu[sites],
+                                       return_counts=True)
+            log_importance += np.sum([facln(n) for n in counts])
+        return log_importance
 
     @property
     def bin_size(self):
@@ -942,20 +951,21 @@ class WangLandauImportance(MCKernel):
         for walker, occupancy in enumerate(occupancies):
             yield self.single_step(occupancy, walker)
 
-        self._aux_states["check-counter"] += 1
-        # check if histograms are flat and reset accordingly
-        if self._aux_states["check-counter"] % self.check_period == 0:
-            if self._aux_states["check-counter"] % self.check_period % 100 == 0:
-                print("Check time:", self._aux_states["check-counter"] % self.check_period)
-            for i, histogram in enumerate(self._aux_states["histogram"]):
-                histogram_pos = histogram[histogram > 0]  # remove zero entries
-                if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
-                        and len(histogram_pos) >= 0.5 * len(histogram)):
-                    # A sufficient portion of histogram must have been populated.
-                    # So be careful with your min and max energy setting.
-                    print("Update mod factor for walker:", i)
-                    self._mfactors[i] = self._mod_update(self._mfactors[i])
-                    self._aux_states["histogram"][i, :] = 0  # reset histogram
+        if not self.production:
+            self._aux_states["check-counter"] += 1
+            # check if histograms are flat and reset accordingly
+            if self._aux_states["check-counter"] % self.check_period == 0:
+                if self._aux_states["check-counter"] % self.check_period % 100 == 0:
+                    print("Check time:", self._aux_states["check-counter"] % self.check_period)
+                for i, histogram in enumerate(self._aux_states["histogram"]):
+                    histogram_pos = histogram[histogram > 0]  # remove zero entries
+                    if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
+                            and len(histogram_pos) >= 0.2 * len(histogram)):
+                        # A sufficient portion of histogram must have been populated.
+                        # So be careful with your min and max energy setting.
+                        print("Update mod factor for walker:", i)
+                        self._mfactors[i] = self._mod_update(self._mfactors[i])
+                        self._aux_states["histogram"][i, :] = 0  # reset histogram
 
     def single_step(self, occupancy, walker=0):
         """Attempt an MC step.
@@ -1019,28 +1029,30 @@ class WangLandauImportance(MCKernel):
             log_importance = self.compute_log_comp_importance(occupancy)
             for name, func in self._properties:
                 prop = func(occupancy)
-                # must divide by factor before sum.
+                # must divide by factor before sum; and prop must > 0!
                 log_prop = np.log(prop) - log_importance
                 log_prop_prev = self._aux_states["logsum-" + name][walker, bin_num]
                 if np.all(np.isnan(log_prop_prev)):  # Not updated yet.
                     self._aux_states["logsum-" + name][walker, bin_num] = \
-                        log_prop
+                        log_prop  # sum(prop/F)
                 else:
                     self._aux_states["logsum-" + name][walker, bin_num] = \
                         vector_log_add(log_prop, log_prop_prev)
             log_importance_prev = self._aux_states["logsuminv-importance"][walker, bin_num]
             if np.all(np.isnan(log_importance_prev)):
                 self._aux_states["logsuminv-importance"][walker, bin_num] = \
-                    log_importance
+                    -log_importance  # sum(1/F)
             else:
                 self._aux_states["logsuminv-importance"][walker, bin_num] = \
-                    vector_log_add(log_importance_prev, log_importance)
+                    vector_log_add(log_importance_prev, -log_importance)
 
             self._aux_states["update-counter"] += 1
             # check if histograms are flat and reset accordingly
             if self._aux_states["update-counter"] % self.update_period == 0:
                 # update DOS and histogram
-                self._aux_states["entropy"][walker, bin_num] += self._mfactors[walker]
+                if not self.production:
+                    self._aux_states["entropy"][walker, bin_num] += self._mfactors[walker]
+                # production mode should not update entropy.
                 self._aux_states["histogram"][walker, bin_num] += 1
                 self._aux_states["total-histogram"][walker, bin_num] += 1
 
@@ -1052,11 +1064,10 @@ class WangLandauImportance(MCKernel):
         # this multiple walker thing is so unessecary!!!
         self.trace.mod_factor = np.array([self._mfactors[walker]])
         for name, func in self._properties:
-            self.trace.__setattr__("logsum_" + name,
-                                   self._aux_states["logsum_" + name][walker])
-        self.trace.logsuminv_importance = self._aux_states["logsuminv_importance"
-                                                           + name][walker]
-# TODO: set up production mode.
+            setattr(self.trace, "logsum_" + name,
+                    self._aux_states["logsum-" + name][walker])
+        self.trace.logsuminv_importance = self._aux_states["logsuminv-importance"][walker]
+
         return self.trace
 
     def compute_initial_trace(self, occupancy):
@@ -1078,6 +1089,10 @@ class WangLandauImportance(MCKernel):
         trace.total_histogram = self._aux_states["total-histogram"][0]
         trace.entropy = self._aux_states["entropy"][0]
         trace.cumulative_mean_features = self._aux_states["mean-features"][0]
+        for name, func in self._properties:
+            setattr(trace, "logsum_" + name,
+                    self._aux_states["logsum-" + name][0])
+        trace.logsuminv_importance = self._aux_states["logsuminv-importance"][0]
         trace.mod_factor = self._mfactors[0]
 
         return trace

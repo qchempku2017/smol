@@ -13,6 +13,7 @@ from smol.moca.sampler.kernel import (
     ThermalKernel,
     Trace,
     UniformlyRandom,
+    WangLandauImportance
 )
 from smol.moca.sampler.mcusher import Flip, Swap, Tableflip
 from tests.utils import gen_random_occupancy
@@ -40,6 +41,24 @@ def mckernel_bias(ensemble, request):
     kernel = kernel_class(ensemble, step_type=step_type, **kwargs)
     kernel.bias = FugacityBias(kernel.mcusher.sublattices)
     return kernel
+
+
+@pytest.fixture(params=ushers)
+def mckernel_wli(ensemble, request):
+    def func1(occu):
+        return (np.isclose(occu, 0).sum() / len(occu)) + 0.01  # To avoid zeros.
+
+    def func2(occu):
+        data = (np.isclose(occu, 0).sum() / len(occu)) + 0.01
+        return np.array([data, data])
+
+    return WangLandauImportance(ensemble, bin_size=1000,
+                                min_energy=-10000,
+                                max_energy=10000,
+                                step_type=request.param,
+                                production=False,
+                                properties=[("whatever", func1), ("wow", func2)],
+                                nwalkers=1)
 
 
 @pytest.mark.parametrize("step_type, mcusher", [("swap", Swap), ("flip", Flip),
@@ -101,6 +120,28 @@ def test_single_step_bias(mckernel_bias):
             assert not np.array_equal(trace.occupancy, occu)
         else:
             npt.assert_array_equal(trace.occupancy, occu)
+
+
+def test_single_step_wli(mckernel_wli):
+    occu = gen_random_occupancy(mckernel_wli._usher.sublattices)
+    n_accept = 0
+    for _ in range(200):
+        trace = mckernel_wli.single_step(occu.copy())
+        assert isinstance(trace.logsuminv_importance, np.ndarray)
+        assert isinstance(trace.logsum_whatever, np.ndarray)
+        assert isinstance(trace.logsum_wow, np.ndarray)
+        assert trace.logsum_whatever.shape == (len(mckernel_wli._energy_levels), )
+        assert trace.logsum_wow.shape == (len(mckernel_wli._energy_levels), 2)
+        assert trace.logsuminv_importance.shape == (len(mckernel_wli._energy_levels), )
+        logsum_invF = trace.logsuminv_importance[~np.isnan(trace.logsuminv_importance)]
+        if len(logsum_invF) > 0:
+            assert np.all(logsum_invF <= 0)  # logSum(1/F) should typically be negative.
+        if trace.accepted:
+            assert not np.array_equal(trace.occupancy, occu)
+            n_accept += 1
+        else:
+            npt.assert_array_equal(trace.occupancy, occu)
+        assert n_accept > 0
 
 
 def test_temperature_setter(single_canonical_ensemble):
