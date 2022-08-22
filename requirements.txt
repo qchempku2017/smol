@@ -5,3 +5,4 @@ polytope
 cvxpy
 cvxopt
 h5py
+scipy

@@ -9,6 +9,7 @@ __author__ = "Luis Barroso-Luque"
 from abc import ABC, abstractmethod
 from math import log
 from types import SimpleNamespace
+from scipy.special import gammaln
 
 import numpy as np
 
@@ -19,6 +20,22 @@ from smol.utils import class_name_from_str, derived_class_factory, get_subclasse
 
 ALL_MCUSHERS = list(get_subclasses(MCUsher).keys())
 ALL_BIAS = list(get_subclasses(MCBias).keys())
+
+
+def facln(n):
+    """Gives ln(n!)."""
+    return gammaln(n + 1)
+
+
+def log_add_exp(a, b):
+    """Gives log(exp(a) + exp(b)).
+
+    Good for summing 2 small numbers.
+    """
+    return min(a, b) + np.log(1 + np.exp(max(a, b) - min(a, b)))
+
+
+vector_log_add = np.vectorize(log_add_exp)
 
 
 class Trace(SimpleNamespace):
@@ -117,15 +134,15 @@ class MCKernel(ABC):
     valid_bias = None
 
     def __init__(
-        self,
-        ensemble,
-        step_type,
-        *args,
-        seed=None,
-        nwalkers=1,
-        bias_type=None,
-        bias_kwargs=None,
-        **kwargs,
+            self,
+            ensemble,
+            step_type,
+            *args,
+            seed=None,
+            nwalkers=1,
+            bias_type=None,
+            bias_kwargs=None,
+            **kwargs,
     ):
         """Initialize MCKernel.
 
@@ -409,14 +426,14 @@ class Metropolis(ThermalKernel):
                 self._bias.compute_bias_change(occupancy, step)
             )
             exponent = (
-                -self.beta * self.trace.delta_trace.enthalpy
-                + self.trace.delta_trace.bias + log_factor
+                    -self.beta * self.trace.delta_trace.enthalpy
+                    + self.trace.delta_trace.bias + log_factor
             )
 
         else:
             exponent = (
-                -self.beta * self.trace.delta_trace.enthalpy
-                + log_factor
+                    -self.beta * self.trace.delta_trace.enthalpy
+                    + log_factor
             )
 
         self.trace.accepted = np.array(
@@ -444,20 +461,20 @@ class WangLandau(MCKernel):
     valid_bias = None
 
     def __init__(
-        self,
-        ensemble,
-        step_type,
-        bin_size,
-        min_energy,
-        max_energy,
-        flatness=0.8,
-        mod_factor=1.0,
-        check_period=1000,
-        update_period=1,
-        mod_update=None,
-        seed=None,
-        nwalkers=1,
-        **kwargs,
+            self,
+            ensemble,
+            step_type,
+            bin_size,
+            min_energy,
+            max_energy,
+            flatness=0.8,
+            mod_factor=1.0,
+            check_period=1000,
+            update_period=1,
+            mod_update=None,
+            seed=None,
+            nwalkers=1,
+            **kwargs,
     ):
         """Initialize a WangLandau Kernel.
 
@@ -600,7 +617,7 @@ class WangLandau(MCKernel):
             for i, histogram in enumerate(self._aux_states["histogram"]):
                 histogram_pos = histogram[histogram > 0]  # remove zero entries
                 if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
-                    and len(histogram_pos) >= 0.5 * len(histogram)):
+                        and len(histogram_pos) >= 0.5 * len(histogram)):
                     # A sufficient portion of histogram must have been populated.
                     # So be careful with your min and max energy setting.
                     print("Update mod factor for walker:", i)
@@ -663,7 +680,7 @@ class WangLandau(MCKernel):
             total = self._aux_states["total-histogram"][walker, bin_num]
             curr_mean = self._aux_states["mean-features"][walker, bin_num]
             self._aux_states["mean-features"][walker, bin_num] = (1 / (total + 1)) * (
-                features + total * curr_mean
+                    features + total * curr_mean
             )
             self._aux_states["update-counter"] += 1
             # check if histograms are flat and reset accordingly
@@ -681,6 +698,365 @@ class WangLandau(MCKernel):
         # this multiple walker thing is so unessecary!!!
         self.trace.mod_factor = np.array([self._mfactors[walker]])
 
+        return self.trace
+
+    def compute_initial_trace(self, occupancy):
+        """Compute inital values for sample trace given an occupancy.
+
+        Add the microcanonical entropy and histograms to the trace
+
+        Args:
+            occupancy (ndarray):
+                Initial occupancy
+
+        Returns:
+            Trace
+        """
+        trace = super().compute_initial_trace(occupancy)
+        # This will not be counting the sate correspondint to the given occupancy.
+        # but that is ok since we are not recording the initial trace when sampling.
+        trace.histogram = self._aux_states["histogram"][0]
+        trace.total_histogram = self._aux_states["total-histogram"][0]
+        trace.entropy = self._aux_states["entropy"][0]
+        trace.cumulative_mean_features = self._aux_states["mean-features"][0]
+        trace.mod_factor = self._mfactors[0]
+
+        return trace
+
+    def set_aux_state(self, occupancies, *args, **kwargs):
+        """Set the auxiliary occupancies based on an occupancy."""
+        features = np.array(list(map(self._compute_features, occupancies)))
+        energies = np.dot(features, self.natural_params)
+        self._aux_states["current-features"][:] = features
+        self._aux_states["current-energy"][:] = energies
+        self._usher.set_aux_state(occupancies)
+
+
+class WangLandauImportance(MCKernel):
+    """
+    A Kernel for Wang Landau Sampling with composition importance.
+
+    Inheritance naming is probably a misnomer, since WL is non-Markovian. But
+    alas we can be code descriptivists.
+    Note: recommended for grand canonical ensemble only.
+    """
+
+    valid_mcushers = ALL_MCUSHERS
+    valid_bias = None
+
+    def __init__(
+            self,
+            ensemble,
+            step_type,
+            bin_size,
+            min_energy,
+            max_energy,
+            flatness=0.8,
+            mod_factor=1.0,
+            check_period=1000,
+            update_period=1,
+            production=False,
+            properties=None,
+            mod_update=None,
+            seed=None,
+            nwalkers=1,
+            **kwargs,
+    ):
+        """Initialize a WangLandau Kernel.
+
+        Args:
+            ensemble (Ensemble):
+                The ensemble object to use to generate samples
+            step_type (str):
+                An MC step type corresponding to an MCUsher. See valid_mcushers
+            bin_size (float):
+                The energy bin size to determine different states.
+            min_energy (float):
+                The minimum energy to sample. Energy value should be given per
+                supercell (i.e. same order of magnitude as what will be sampled).
+            max_energy (float):
+                The maximum energy to sample. Same as above.
+            flatness (float): optional
+                The flatness factor used when checking histogram flatness.
+                Must be between 0 and 1.
+            mod_factor (float):
+                The modification factor used to update the DOS/entropy.
+                Default is log(e^1).
+            check_period (int): optional
+                The period in number of steps for the histogram flatness to be
+                checked.
+            update_period (int): optional
+                The period number in steps to update the histogram and entropy.
+                In some cases periods slightly larger than each step, may allow
+                more efficient exploration of energy space.
+            production (bool): optional
+                Whether to run the current kernel in production mode. In the
+                production mode, cumulative composition importance function will
+                be computed for each bin.
+            properties (list[(str, Callable)]):
+                Name of properties that you wish to save for each enthalpy bin,
+                and the corresponding callable function to compute them from
+                an occupancy array.
+            mod_update (Callable): optional
+                A function used to update the fill factor when the histogram
+                satisfies the flatness criteria. The function is used to update
+                the entropy value for an energy level and so must monotonically
+                decrease to 0.
+            seed (int): optional
+                non-negative integer to seed the PRNG
+            nwalkers (int): optional
+                Number of walkers/chains to sampler. Default is 1.
+        """
+        if min_energy > max_energy:
+            raise ValueError("min_energy can not be larger than max_energy.")
+        elif mod_factor <= 0:
+            raise ValueError("mod_factor must be greater than 0.")
+
+        self.flatness = flatness
+        self.check_period = check_period
+        self.update_period = update_period
+        self._mfactors = np.array(
+            nwalkers
+            * [
+                mod_factor,
+            ]
+        )
+        self._window = (min_energy, max_energy)
+        self._bin_size = bin_size
+        self._mod_update = mod_update if mod_update is not None else lambda f: f / 2.0
+
+        self._energy_levels = np.arange(min_energy, max_energy, bin_size)
+        self._aux_states = {
+            "histogram": np.zeros((nwalkers, len(self._energy_levels)), dtype=int),
+            "entropy": np.zeros((nwalkers, len(self._energy_levels))),
+            "current-energy": np.zeros(nwalkers),
+            "check-counter": 0,  # count steps to check flatness at given intervals
+            "update-counter": 0,  # count steps to update histogram and entropy
+            # keep a total-histogram for online means (and variances eventually?)
+            "total-histogram": np.zeros(
+                (nwalkers, len(self._energy_levels)), dtype=int
+            ),
+            "current-features": np.zeros((nwalkers, len(ensemble.natural_parameters))),
+            # for cumulative mean features per energy level
+            "mean-features": np.zeros(
+                (nwalkers, len(self._energy_levels), len(ensemble.natural_parameters))
+            ),
+        }
+        if properties is None:
+            self._properties = []
+        else:
+            self._properties = properties
+        for prop_name, func in self._properties:
+            prop_shape = np.array(func(np.zeros(ensemble.num_sites, dtype=int))).shape
+            self._aux_states["logsum-" + prop_name] = \
+                np.zeros((nwalkers,
+                          len(self._energy_levels),
+                          *prop_shape))
+        self._aux_states["logsuminv-importance"] = \
+            np.zeros((nwalkers, len(self._energy_levels)))
+        for name, func in self._properties:
+            self._aux_states["logsum-" + name][:] = np.nan  # because start is log(0)
+        self._aux_states["logsuminv-importance"][:] = np.nan
+        # Only grand canonical ensemble need composition importance sampling.
+        if (hasattr(ensemble, "chemical_potentials") and
+                ensemble.chemical_potentials is not None):
+            self._grand_canonical = True
+        else:
+            self._grand_canonical = False
+        self._active_sites = [s.sites for s in ensemble.active_sublattices]
+
+        super().__init__(
+            ensemble=ensemble,
+            step_type=step_type,
+            nwalkers=nwalkers,
+            seed=seed,
+            **kwargs,
+        )
+        # clear aux_states from single_step call in super.__init__ (not v clean though)
+        self._aux_states["histogram"][:] = 0
+        self._aux_states["entropy"][:] = 0
+        self._aux_states["mean-features"][:] = 0
+        self._aux_states["total-histogram"][:] = 0
+        self._aux_states["current-energy"][:] = 0
+        self._aux_states["current-features"][:] = 0
+        for name, func in self._properties:
+            self._aux_states["logsum-" + name][:] = np.nan  # because start is log(0)
+        self._aux_states["logsuminv-importance"][:] = np.nan
+        self._aux_states["check-counter"] = 0
+        self._aux_states["update-counter"] = 0
+
+    def compute_log_comp_importance(self, occu):
+        """Compute composition importance function."""
+        return np.sum(np.fromiter(
+            (facln(n) for sites in self._active_sites
+             for values, counts in np.unique(occu[sites],
+                                             return_counts=True)
+             for n in values), float))
+
+    @property
+    def bin_size(self):
+        """Get the size of energy bins."""
+        return self._bin_size
+
+    @property
+    def energy_levels(self):
+        """Get energies that have been visited or are inside initial window."""
+        # TODO this again is a mess because of this multiple walker mess...
+        return self._energy_levels[self._aux_states["entropy"][0] > 0]
+
+    @property
+    def entropy(self):
+        """Return entropy values for each walker."""
+        # TODO this again is a mess because of this multiple walker mess...
+        mask = self._aux_states["entropy"][0] > 0
+        return np.vstack([entropy[mask] for entropy in self._aux_states["entropy"]])
+
+    @property
+    def dos(self):
+        """Get current DOS for each walker."""
+        return np.exp(self.entropy - self.entropy.min(axis=0))
+
+    @property
+    def histogram(self):
+        """Get current histograms for each walker."""
+        # remove unvisited states
+        # TODO this again is a mess because of this multiple walker mess...
+        mask = self._aux_states["entropy"][0] > 0
+        return np.vstack([hist[mask] for hist in self._aux_states["entropy"]])
+
+    @property
+    def mod_factors(self):
+        """Get the entropy modification factors."""
+        return self._mfactors
+
+    def _get_bin(self, energy):
+        """Get the histogram bin for _aux_states dict from given energy."""
+        return int((energy - self._window[0]) // self._bin_size)
+
+    def _get_bin_energy(self, bin_number):
+        """Get the bin energy for _aux_states dict from given energy."""
+        return bin_number * self._bin_size + self._window[0]
+
+    def iter_steps(self, occupancies):
+        """Iterate steps for each walker over an array of occupancies."""
+        for walker, occupancy in enumerate(occupancies):
+            yield self.single_step(occupancy, walker)
+
+        self._aux_states["check-counter"] += 1
+        # check if histograms are flat and reset accordingly
+        if self._aux_states["check-counter"] % self.check_period == 0:
+            if self._aux_states["check-counter"] % self.check_period % 100 == 0:
+                print("Check time:", self._aux_states["check-counter"] % self.check_period)
+            for i, histogram in enumerate(self._aux_states["histogram"]):
+                histogram_pos = histogram[histogram > 0]  # remove zero entries
+                if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
+                        and len(histogram_pos) >= 0.5 * len(histogram)):
+                    # A sufficient portion of histogram must have been populated.
+                    # So be careful with your min and max energy setting.
+                    print("Update mod factor for walker:", i)
+                    self._mfactors[i] = self._mod_update(self._mfactors[i])
+                    self._aux_states["histogram"][i, :] = 0  # reset histogram
+
+    def single_step(self, occupancy, walker=0):
+        """Attempt an MC step.
+
+        Returns the next occupancies in the chain and if the attempted step was
+        successful based on the WL algorithm.
+
+        Args:
+            occupancy (ndarray):
+                encoded occupancy.
+            walker (int):
+                index of walker to take step.
+
+        Returns:
+            tuple: (acceptance, occupancy, features change, enthalpy change)
+        """
+        energy = self._aux_states["current-energy"][walker]
+        features = self._aux_states["current-features"][walker]
+        bin_num = self._get_bin(energy)
+
+        step = self._usher.propose_step(occupancy)
+        self.trace.delta_trace.features = self._feature_change(occupancy, step)
+        self.trace.delta_trace.enthalpy = np.array(
+            np.dot(self.natural_params, self.trace.delta_trace.features)
+        )
+
+        new_energy = energy + self.trace.delta_trace.enthalpy  # energy really
+
+        if new_energy < self._window[0]:  # reject
+            self.trace.accepted = np.array(False)
+        elif new_energy >= self._window[1]:  # reject
+            self.trace.accepted = np.array(False)
+        else:
+            # Importance sampling does not compute log factor in acceptance.
+            # log_factor = self._usher.compute_log_priori_factor(occupancy, step)
+            state = self._aux_states["entropy"][walker, bin_num]
+            new_bin_num = self._get_bin(new_energy)
+            new_state = self._aux_states["entropy"][walker, new_bin_num]
+            exponent = state - new_state
+            self.trace.accepted = np.array(True if exponent >= 0
+                                           else exponent > log(self._rng.random()))
+
+        if self.trace.accepted:
+            for f in step:
+                occupancy[f[0]] = f[1]
+            bin_num = new_bin_num
+            features += self.trace.delta_trace.features
+            self._aux_states["current-energy"][walker] = new_energy
+            self._aux_states["current-features"][walker] = features
+            self._usher.update_aux_state(step)
+        self.trace.occupancy = occupancy  # Should be saved!
+
+        # only if bin_num is valid
+        if 0 <= bin_num < len(self._energy_levels):
+            # compute the cumulative statistics
+            total = self._aux_states["total-histogram"][walker, bin_num]
+            curr_mean = self._aux_states["mean-features"][walker, bin_num]
+            self._aux_states["mean-features"][walker, bin_num] = (1 / (total + 1)) * (
+                    features + total * curr_mean
+            )
+            log_importance = self.compute_log_comp_importance(occupancy)
+            for name, func in self._properties:
+                prop = func(occupancy)
+                # must divide by factor before sum.
+                log_prop = np.log(prop) - log_importance
+                log_prop_prev = self._aux_states["logsum-" + name][walker, bin_num]
+                if np.all(np.isnan(log_prop_prev)):  # Not updated yet.
+                    self._aux_states["logsum-" + name][walker, bin_num] = \
+                        log_prop
+                else:
+                    self._aux_states["logsum-" + name][walker, bin_num] = \
+                        vector_log_add(log_prop, log_prop_prev)
+            log_importance_prev = self._aux_states["logsuminv-importance"][walker, bin_num]
+            if np.all(np.isnan(log_importance_prev)):
+                self._aux_states["logsuminv-importance"][walker, bin_num] = \
+                    log_importance
+            else:
+                self._aux_states["logsuminv-importance"][walker, bin_num] = \
+                    vector_log_add(log_importance_prev, log_importance)
+
+            self._aux_states["update-counter"] += 1
+            # check if histograms are flat and reset accordingly
+            if self._aux_states["update-counter"] % self.update_period == 0:
+                # update DOS and histogram
+                self._aux_states["entropy"][walker, bin_num] += self._mfactors[walker]
+                self._aux_states["histogram"][walker, bin_num] += 1
+                self._aux_states["total-histogram"][walker, bin_num] += 1
+
+        # fill up values in the trace
+        self.trace.histogram = self._aux_states["histogram"][walker]
+        self.trace.total_histogram = self._aux_states["total-histogram"][walker]
+        self.trace.entropy = self._aux_states["entropy"][walker]
+        self.trace.cumulative_mean_features = self._aux_states["mean-features"][walker]
+        # this multiple walker thing is so unessecary!!!
+        self.trace.mod_factor = np.array([self._mfactors[walker]])
+        for name, func in self._properties:
+            self.trace.__setattr__("logsum_" + name,
+                                   self._aux_states["logsum_" + name][walker])
+        self.trace.logsuminv_importance = self._aux_states["logsuminv_importance"
+                                                           + name][walker]
+# TODO: set up production mode.
         return self.trace
 
     def compute_initial_trace(self, occupancy):
