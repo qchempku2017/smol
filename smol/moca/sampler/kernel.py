@@ -618,7 +618,7 @@ class WangLandau(MCKernel):
             for i, histogram in enumerate(self._aux_states["histogram"]):
                 histogram_pos = histogram[histogram > 0]  # remove zero entries
                 if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
-                        and len(histogram_pos) >= 0.5 * len(histogram)):
+                        and len(histogram_pos) >= 0.1 * len(histogram)):
                     # A sufficient portion of histogram must have been populated.
                     # So be careful with your min and max energy setting.
                     print("Update mod factor for walker:", i)
@@ -960,7 +960,7 @@ class WangLandauImportance(MCKernel):
                 for i, histogram in enumerate(self._aux_states["histogram"]):
                     histogram_pos = histogram[histogram > 0]  # remove zero entries
                     if ((histogram_pos > self.flatness * histogram_pos.mean()).all()
-                            and len(histogram_pos) >= 0.2 * len(histogram)):
+                            and len(histogram_pos) >= 0.1 * len(histogram)):
                         # A sufficient portion of histogram must have been populated.
                         # So be careful with your min and max energy setting.
                         print("Update mod factor for walker:", i)
