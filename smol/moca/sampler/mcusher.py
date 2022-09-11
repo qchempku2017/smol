@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import warnings
 import math
+from scipy.special import gammaln
 
 from smol.utils import derived_class_factory, class_name_from_str
 from ..comp_space import CompSpace
@@ -25,6 +26,11 @@ from ..utils.occu_utils import (get_dim_ids_by_sublattice,
                                 delta_n_from_step)
 from ..utils.math_utils import (choose_section_from_partition, gcd_list,
                                 comb, flip_weights_mask, NUM_TOL)
+
+
+def facln(n):
+    """Natural log of factor n."""
+    return gammaln(n + 1)
 
 
 class MCUsher(ABC):
@@ -120,6 +126,18 @@ class MCUsher(ABC):
 
         Returns:
             float: log of a-priori adjustment weight.
+        """
+        return 0
+
+    def compute_log_comp_importance(self, occupancy):
+        """Compute natural log of composition importance factor.
+
+        Used to reweight after some importance sampling.
+        Args:
+             occupancy (ndarray):
+                 encoded occupancy string
+        Returns:
+            float.
         """
         return 0
 
@@ -479,6 +497,29 @@ class Tableflip(MCUsher):
                                  * comb(n_next[dim], u[dim]))
 
         return log_factor
+
+    def compute_log_comp_importance(self, occupancy):
+        """Compute natural log of composition importance factor.
+
+        Used to reweight after some importance sampling.
+        Args:
+             occupancy (ndarray):
+                 encoded occupancy string
+        Returns:
+            float.
+        """
+        n_now = occu_to_species_n(occupancy, self.d,
+                                  self._dim_ids_table)
+        mask_now = flip_weights_mask(self.flip_table,
+                                     n_now, self.max_n).astype(int)
+        if not np.allclose(self.flip_weights, self.flip_weights[0]):
+            raise ValueError("Can not compute composition importance"
+                             " if proposal probability is dependent"
+                             " on flip direction!")
+        if np.sum(mask_now) == 0:
+            raise ValueError("Current composition is detached"
+                             " from any other composition!")
+        return np.sum([facln(n) for n in n_now]) + np.log(np.sum(mask_now))
 
 
 def mcusher_factory(usher_type, sublattices, *args, **kwargs):

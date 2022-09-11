@@ -812,6 +812,9 @@ class WangLandauImportance(MCKernel):
                 non-negative integer to seed the PRNG
             nwalkers (int): optional
                 Number of walkers/chains to sampler. Default is 1.
+        Note: Do not set flip_weights for table flip, otherwise proposal probability
+        will be dependent on flip direction, such that the composition weight can not
+        be computed!
         """
         if min_energy > max_energy:
             raise ValueError("min_energy can not be larger than max_energy.")
@@ -895,12 +898,7 @@ class WangLandauImportance(MCKernel):
 
     def compute_log_comp_importance(self, occu):
         """Compute composition importance function."""
-        log_importance = 0
-        for sites in self._active_sites:
-            values, counts = np.unique(occu[sites],
-                                       return_counts=True)
-            log_importance += np.sum([facln(n) for n in counts])
-        return log_importance
+        return self._usher.compute_log_comp_importance(occu)
 
     @property
     def bin_size(self):
